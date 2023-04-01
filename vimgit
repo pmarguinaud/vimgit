@@ -1,0 +1,175 @@
+#!/usr/bin/perl -w
+
+
+my $HELP = << 'EOF';
+*vimgit.txt*
+EOF
+
+use strict;
+
+use FindBin qw ($Bin);
+use lib "$Bin/lib";
+use File::Basename;
+use File::Spec;
+use FileHandle;
+use Getopt::Long;
+use Data::Dumper;
+use File::Path;
+use vimgit::mini;
+
+our $BIN;
+
+use lib do
+{
+  ($BIN, my $exe) = ($Bin, $0);
+  for (1 .. 100)
+    {
+      last unless (-l $exe);
+      $exe = 'File::Spec'->rel2abs (readlink ($exe), $BIN);
+      $BIN = &dirname ($exe);
+    }
+  ("$BIN/lib", "$BIN/perl5")
+};
+
+
+sub bt
+{
+  for (my $i = 0; ; $i++)
+    {
+      last unless (my @call = caller ($i));
+      return if ($call[3] eq '(eval)');
+    }
+
+  print @_;
+
+  print "\n";
+  for (my $i = 0; ; $i++)
+    {
+      last unless (my @call = caller ($i));
+      print " $i ", $call[1], ':', $call[2], "\n";
+    }
+  die "\n";
+}
+
+$SIG{__WARN__} = \&bt;
+$SIG{__DIE__} = \&bt;
+
+my @opts = qw (d v i g b w h x);
+my %opts = map { ($_, 0), } @opts;
+&GetOptions (map { ($_, \$opts{$_}) } @opts);
+
+if ($opts{i})
+  {
+    my $e = 'vimgit'->new (TOP => '.vimgit');
+
+    $e->{fhlog} = \*STDOUT;
+    $e->idx ();
+    exit (0);
+  }
+
+my $dTOP = '.vimgit';
+my $dTMP = "$dTOP/tmp=";
+my $dHLP = "$dTOP/hlp=";
+
+&mkpath ($_)
+  for ($dTOP, $dTMP, $dHLP);
+
+my ($fCOM, $fHLP) = ("$dTOP/start.vim", "$dHLP/vimgit.txt");
+
+my $hCOM = 'FileHandle'->new (">$fCOM");
+
+$hCOM->print (<< "EOF");
+
+
+set helpfile=$fHLP
+helptags $dHLP
+
+if has('perl')
+
+perl <<
+use lib "$BIN/lib", "$BIN/perl5";
+use strict; 
+use warnings; 
+use vimgit; 
+our \$EDITOR = 'vimgit'->new (TOP => "$dTOP", WARN => $opts{w}); 
+.
+
+EOF
+
+$hCOM->print (<< 'EOF');
+command! -nargs=1 F      :perl $::EDITOR->FIND (word => "<args>")
+command! -nargs=1 E      :perl $::EDITOR->EDIT ("<args>")
+command! -nargs=* T      :perl $::EDITOR->TRANSFORM ("<args>")
+command! -nargs=0 H      :perl $::EDITOR->LOGHIST ()
+map <TAB>                :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 0)<CR>
+map œ                    :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 1)<CR>
+map `                    :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 1)<CR>
+map ²                    :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 1)<CR>
+map <S-TAB>              :perl $::EDITOR->FIND (auto => 1, new_window => 1, defn => 0)<CR>
+map <C-²>                :perl $::EDITOR->FIND (auto => 1, new_window => 1, defn => 1)<CR>
+map <BS>                 :perl $::EDITOR->BACK ()<CR>
+EOF
+
+if ($opts{v})
+  {
+    $hCOM->print (<< "EOF");
+perl \$::EDITOR->setlog (1);
+EOF
+  }
+
+if ($opts{b})
+  {
+    my @bt;
+    while (<>)
+      {
+# Intel
+#       237 lfitools           00000000004BB8D2  sdl_mod_mp_sdl_sr         100  sdl_mod.F90
+        if (m/^.*\s+(\d+)\s+(\S+)$/o)
+          {
+            unshift (@bt, "$2:$1");
+          }
+# DrHook
+#       237 (pid=71798): /tmp/gmkpack/gmktmp.48341/Pcplpack/dirwork.5/mpl_abort_mod.F90:36  :  lfitools() [0x4bc950]
+        elsif (m/\(pid=\d+\):\s+(\S+):(\d+)\s+:/o)
+          {
+            use File::Basename;
+            unshift (@bt, &basename ($1) . ":$2");
+          }
+
+      }
+    unshift (@ARGV, reverse (@bt));
+  }
+
+
+if (@ARGV)
+  {
+
+    my $method = 'EDIT';
+    $method = 'BT'   if ($opts{b});
+
+    local $" = "', '";
+    $hCOM->print (<< "EOF");
+perl \$::EDITOR->$method ('@ARGV')
+
+EOF
+
+  }
+
+$hCOM->print (<< "EOF");
+
+else
+  echohl WarningMsg | echo "Vim requires an embedded Perl in order to run vimgit" | echohl None
+endif
+
+EOF
+
+$hCOM->close ();
+
+
+my $hHELP = 'FileHandle'->new (">$fHLP")->print ($HELP);
+
+my $VIM = $ENV{VIMPACKVIM} || 'vim';
+
+exec ($VIM, ($opts{g} ? ('-g') : ()), -S => $fCOM);
+
+
