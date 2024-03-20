@@ -62,6 +62,8 @@ sub wanted_windex_
   return unless (-f $f);
   return if ($f =~ m/\.vimgit\b/o);
 
+  $f =~ s,^\./,,o;
+
   if ($sindex)
     {
       push @{ $sindex->{&basename ($f)} }, $f;
