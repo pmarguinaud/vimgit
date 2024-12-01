@@ -17,6 +17,32 @@ sub new
   return $self;
 }
 
+sub singleLink
+{
+  use File::Copy;
+  use File::Temp;
+  use File::stat;
+  use Fcntl 'S_IWUSR';
+
+  my $self = shift;
+
+  my $file = $self->{file};
+
+  return unless (my $st = stat ($file));
+
+  # Make file single link
+  if ($st->nlink > 1)
+    {
+      my $fh = 'File::Temp'->new (); 
+      &copy ($file, $fh->filename ());
+      unlink ($file);
+      &copy ($fh->filename (), $file);
+      utime ($st->atime, $st->mtime, $file);
+      chmod (0600 | $st->mode (), $file);
+    }
+  
+}
+
 sub do_edit
 {
 

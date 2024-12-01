@@ -319,6 +319,7 @@ sub find
 
   my ($self, %args) = @_;
 
+
   if ($args{auto})
     {
       my $file = $self->getcurfile ();
@@ -378,6 +379,17 @@ sub LOGHIST
   my $self = shift;
   my $fhlog = $self->{fhlog};
   $fhlog && $self->{history}->log ($fhlog);
+}
+
+sub COMMIT
+{
+  my ($self, %args) = @_;
+
+  if (my $file = $self->getcurfile ())
+    {
+      $file->singleLink ();
+    }
+ 
 }
 
 1;

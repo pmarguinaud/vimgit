@@ -19,8 +19,8 @@ use vimgit::mini;
 
 our $BIN;
 
-use lib do
-{
+use lib do 
+{ 
   ($BIN, my $exe) = ($Bin, $0);
   for (1 .. 100)
     {
@@ -78,11 +78,17 @@ my ($fCOM, $fHLP) = ("$dTOP/start.vim", "$dHLP/vimgit.txt");
 
 my $hCOM = 'FileHandle'->new (">$fCOM");
 
+my $HOME = (getpwuid $>)[7];
+
 $hCOM->print (<< "EOF");
 
 
 set helpfile=$fHLP
 helptags $dHLP
+
+if filereadable ('$HOME/.vimgit.rc')
+  source $HOME/.vimgit.rc
+endif
 
 if has('perl')
 
@@ -98,6 +104,7 @@ EOF
 
 $hCOM->print (<< 'EOF');
 command! -nargs=1 F      :perl $::EDITOR->FIND (word => "<args>")
+command! -nargs=0 C      :perl $::EDITOR->COMMIT ()
 command! -nargs=1 E      :perl $::EDITOR->EDIT ("<args>")
 command! -nargs=* T      :perl $::EDITOR->TRANSFORM ("<args>")
 command! -nargs=0 H      :perl $::EDITOR->LOGHIST ()
@@ -108,6 +115,7 @@ map ²                    :perl $::EDITOR->FIND (auto => 1, new_window => 0, def
 map <S-TAB>              :perl $::EDITOR->FIND (auto => 1, new_window => 1, defn => 0)<CR>
 map <C-²>                :perl $::EDITOR->FIND (auto => 1, new_window => 1, defn => 1)<CR>
 map <BS>                 :perl $::EDITOR->BACK ()<CR>
+autocmd BufWritePre   *  :perl $::EDITOR->COMMIT ();
 EOF
 
 if ($opts{v})
@@ -134,6 +142,13 @@ if ($opts{b})
           {
             use File::Basename;
             unshift (@bt, &basename ($1) . ":$2");
+          }
+# EcDrhook
+#       2179 [EC_DRHOOK:belenosndl0:1:1:72722:72722] [20230912:073752:1.114] [LinuxTraceBack] [06]: MASTERODB() [0xfeb397e] : field_array_module_update_view_field_3rb_array_() at field_array_module.F90:401
+        elsif (m/^(?:\d+\s+)?\[EC_DRHOOK:.*\[0x\w+\]\s*:\s*.*\s+at\s+(\S+):(\d+)\s*$/o)
+          {
+
+            unshift (@bt, "$1:$2");
           }
 
       }
