@@ -16,11 +16,15 @@ sub new
 {
   my $class = shift;
 
+  my %args = @_;
+
+  $args{TOP} = [split (m/\s+/o, $args{TOP})];
+
   my $self = bless 
                { 
                  history => 'vimgit::history'->new (), 
                  maxfind => 200,
-                 @_ 
+                 %args,
                }, $class;
 
   return $self;
@@ -89,43 +93,43 @@ sub idx
 {
   my ($self, %args) = @_;
 
-  my $callback = $args{callback};
 
+  for my $TOP (@{ $self->{TOP} })
+    {
 # create indexes
 
-  my $fhlog = $self->{fhlog};
-
-  my $hashlist = 'vimgit::git'->getHashList ();
-  die unless (scalar (@$hashlist));
-
-  my ($hash) = @$hashlist;
-
-  unless ((-f "$self->{TOP}/$hash/windex.db") && (-f "$self->{TOP}/$hash/sindex.db"))
-    {
-      &mkpath ("$self->{TOP}/$hash");
-      my %windex;
-      my %findex;
-      my %sindex;
-
-      mkdir ($self->{TOP});
-
-      my $follow = 0;
-      &File::Find::find ({wanted => sub { &wanted_windex_ (windex => \%windex, findex => \%findex, 
-                                                           sindex => \%sindex, fhlog  => $fhlog, 
-							   file => $File::Find::name,
-                                                           callback => $callback) }, 
-                         no_chdir => 1, follow => $follow}, '.');
-  
-      tie (my %WINDEX,  'DB_File', "$self->{TOP}/$hash/windex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
-      &cidx (\%windex, \%WINDEX);
-      untie (%WINDEX);
-
-      tie (my %SINDEX,  'DB_File', "$self->{TOP}/$hash/sindex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
-      &cidx (\%sindex, \%SINDEX);
-      untie (%SINDEX);
-
+      my $fhlog = $self->{fhlog};
+     
+      my $hashlist = 'vimgit::git'->getHashList (repo => $TOP);
+      die unless (scalar (@$hashlist));
+     
+      my ($hash) = @$hashlist;
+     
+      unless ((-f "$TOP/$hash/windex.db") && (-f "$TOP/$hash/sindex.db"))
+        {
+          &mkpath ("$TOP/$hash");
+          my %windex;
+          my %findex;
+          my %sindex;
+     
+          mkdir ($TOP);
+     
+          my $follow = 0;
+          &File::Find::find ({wanted => sub { &wanted_windex_ (windex => \%windex, findex => \%findex, 
+                                                               sindex => \%sindex, fhlog  => $fhlog, 
+            						       file => $File::Find::name); },
+                             no_chdir => 1, follow => $follow}, &dirname ($TOP));
+      
+          tie (my %WINDEX,  'DB_File', "$TOP/$hash/windex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
+          &cidx (\%windex, \%WINDEX);
+          untie (%WINDEX);
+     
+          tie (my %SINDEX,  'DB_File', "$TOP/$hash/sindex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
+          &cidx (\%sindex, \%SINDEX);
+          untie (%SINDEX);
+     
+        }
     }
-
 }
 
 sub cidx

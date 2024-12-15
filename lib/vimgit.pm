@@ -27,8 +27,7 @@ sub setlog
 
   if ($verbose)
     {
-      mkdir ($self->{TOP});
-      my $fhlog = 'FileHandle'->new (">>$self->{TOP}/log");
+      my $fhlog = 'FileHandle'->new (">>$self->{HOME}/vimgit.log");
       $fhlog->autoflush (1);
       $self->{fhlog} = $fhlog;
     }
@@ -40,54 +39,69 @@ sub getsindex
 
   my ($self, @args) = @_;
 
-  my $hashlist = 'vimgit::git'->getHashList ();
-  
-  my $hash = (sub
-  {
-    my $hash;
-    for $hash (@$hashlist)
-      {
-        my $f = "$self->{TOP}/$hash/sindex.db";
-        return $hash if (-f $f);
-      }
-  })->();
-
-  $hash or die ("No index was found");
-
-  my $m = 'vimgit::git'->getDiff (hash => $hash);
-
   my %args = map { ($_, 1) } @args;
+
+  my %hash;
+      
+  for my $TOP (@{ $self->{TOP} })
+    {
+       my $hashlist = 'vimgit::git'->getHashList (repo => $TOP);
+
+       my $hash = (sub
+       {
+         my $hash;
+         for $hash (@$hashlist)
+           {
+             my $f = "$TOP/$hash/sindex.db";
+             return $hash if (-f $f);
+           }
+       })->();
+      
+       $hash or die ("No index was found in $TOP");
+
+       $hash{$TOP} = $hash;
+    }
 
   my @i;
 
-  if ($args{sindex})
+  for my $TOP (@{ $self->{TOP} })
     {
-      my %s;
-
-      my %sindex;
-
-      while (my ($f, $m) = each (%$m))
+      my $hash = $hash{$TOP};
+     
+      my $m = 'vimgit::git'->getDiff (repo => $TOP, hash => $hash);
+     
+      if ($args{sindex})
         {
-          if (($m eq '+') || ($m eq 'M'))
-	    {
-              &wanted_windex_ (sindex => \%s, fhlog => $self->{fhlog}, file => $f);
-	    }
+          my %s;
+          my %sindex;
+     
+          while (my ($f, $m) = each (%$m))
+            {
+              if (($m eq '+') || ($m eq 'M'))
+                {
+                  &wanted_windex_ (sindex => \%s, fhlog => $self->{fhlog}, file => "$TOP/$f");
+                }
+            }
+     
+          &cidx (\%s, \%sindex);
+     
+          push @i, $TOP, \%sindex;
         }
-
-      &cidx (\%s, \%sindex);
-
-      push @i, \%sindex;
     }
-
+      
   if ($args{SINDEX})
     {
       unless ($self->{SINDEX})
         {
-          my %SINDEX;
-          tie (%SINDEX,  'DB_File', "$self->{TOP}/$hash/sindex.db", O_RDONLY);
-          $self->{SINDEX} = \%SINDEX;
-        }
-      push @i, $self->{SINDEX};
+          for my $TOP (@{ $self->{TOP} })
+            {
+              my $hash = $hash{$TOP};
+              my %SINDEX;
+              tie (%SINDEX,  'DB_File', "$TOP/$hash/sindex.db", O_RDONLY);
+              push @{ $self->{SINDEX} }, $TOP, \%SINDEX;
+            }
+         }
+      push @i, @{ $self->{SINDEX} };
     }
 
   return @i;
@@ -97,41 +111,58 @@ sub getwindex
 {
   my ($self, @args) = @_;
 
-  my $hashlist = 'vimgit::git'->getHashList ();
-  
-  my $hash = (sub
-  {
-    my $hash;
-    for $hash (@$hashlist)
+  my %hash;
+      
+  for my $TOP (@{ $self->{TOP} })
+    {
+       my $hashlist = 'vimgit::git'->getHashList (repo => $TOP);
+
+       my $hash = (sub
+       {
+         my $hash;
+         for $hash (@$hashlist)
+           {
+             my $f = "$TOP/$hash/sindex.db";
+             return $hash if (-f $f);
+           }
+       })->();
+      
+       $hash or die ("No index was found in $TOP");
+
+       $hash{$TOP} = $hash;
+    }
+
+  my @i;
+
+  for my $TOP (@{ $self->{TOP} })
+    {
+      my $hash = $hash{$TOP};
+
+      my $m = 'vimgit::git'->getDiff (repo => $TOP, hash => $hash);
+
+      my %WINDEX;
+      my %windex;
+      my %findex;
+
+      tie (%WINDEX,  'DB_File', "$TOP/$hash/windex.db", O_RDONLY);
+      
       {
-        my $f = "$self->{TOP}/$hash/sindex.db";
-        return $hash if (-f $f);
-      }
-  })->();
-
-  $hash or die ("No index was found");
-
-  my $m = 'vimgit::git'->getDiff (hash => $hash);
-
-  my %WINDEX;
-  my %windex;
-  my %findex;
-
-  tie (%WINDEX,  'DB_File', "$self->{TOP}/$hash/windex.db", O_RDONLY);
-  
-  {
-    my %b;
-    while (my ($f, $m) = each (%$m))
-      {
-        if (($m eq '+') || ($m eq 'M'))
+        my %b;
+        while (my ($f, $m) = each (%$m))
           {
-            &wanted_windex_ (windex => \%b, findex => \%findex, file => $f, fhlog => $self->{fhlog});
+            if (($m eq '+') || ($m eq 'M'))
+              {
+                &wanted_windex_ (windex => \%b, findex => \%findex, file => $f, fhlog => $self->{fhlog});
+              }
           }
-      }
-    &cidx (\%b, \%windex);
-  }
 
-  return (\%WINDEX, \%windex, \%findex);
+        &cidx (\%b, \%windex);
+      }
+
+      push @i, ($TOP, \%WINDEX, \%windex, \%findex);
+    }
+
+  return @i;
 }
 
 sub edit
@@ -141,7 +172,7 @@ sub edit
 
   my ($self, %args) = @_;
 
-  my ($sindex, $SINDEX) = $self->getsindex (qw (sindex SINDEX));
+  my %sindex = $self->getsindex (qw (sindex SINDEX));
 
   my @HlF;
 
@@ -165,7 +196,12 @@ sub edit
           ($line) = ($1);
         }
   
-      my $P = $sindex->{$F} || $SINDEX->{$F};
+      my $P;
+
+      for my $TOP (@{ $self->{TOP} })
+        {
+          last if ($P = $sindex{$TOP}{$F});
+        }
 
       unless ($P)
         {

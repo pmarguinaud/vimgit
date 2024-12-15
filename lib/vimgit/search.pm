@@ -35,13 +35,19 @@ sub getfiles
   my $word = $args{word};
   my $edtr = $args{editor};
 
-  my ($WINDEX, $windex, $findex) = $edtr->getwindex ();
+  my @WwfINDEX = $edtr->getwindex ();
 
-  my %f = map { ($_, 1) }
+  my @f;
+ 
+  while (my ($TOP, $WINDEX, $windex, $findex) = splice (@WwfINDEX, 0, 4))
+    {
+      push @f,
           (split (m/\s+/o, $windex->{$word}), 
            grep ({ ! $findex->{$_} } split (m/\s+/o, $WINDEX->{$word})));
-  my @f = sort keys (%f);
-
+    }
+ 
+  my %f = @f;
+  @f = sort keys (%f);
   return \@f;
 }
   
@@ -109,6 +115,8 @@ sub create
 
 
     }
+
+  &VIM::DoCommand (':redraw!');
 
   return $self;
 }
