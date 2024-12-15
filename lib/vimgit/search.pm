@@ -61,7 +61,7 @@ sub create
   my $defn  = $args{defn};  # search for definition
   my $call  = $args{call};  # search for backtrace
 
-  &mkpath ("$edtr->{TOP}/search=");
+  &mkpath ("$edtr->{ROOT}/search=");
 
   my $curbuf = $edtr->getcurbuf ();
   my $lang   = 'vimgit::lang'->lang ($curbuf->Name ());
@@ -89,7 +89,7 @@ sub create
 
   my $ext = 'vimgit::lang'->lang2ext ($lang);
 
-  my $filename = "$edtr->{TOP}/search=/word=$word.rank=$rank$ext";
+  my $filename = "$edtr->{ROOT}/search=/word=$word.rank=$rank$ext";
   my $fh = 'FileHandle'->new (">$filename");
   
 
@@ -135,7 +135,7 @@ sub create_call
 
   my $ext = 'vimgit::lang'->lang2ext ($lang);
   
-  my $filename = "$edtr->{TOP}/search=/call.word=$word.rank=$rank$ext";
+  my $filename = "$edtr->{ROOT}/search=/call.word=$word.rank=$rank$ext";
   my $fh = 'FileHandle'->new (">$filename");
   
 
@@ -177,7 +177,7 @@ sub create_defn
 
   my $ext = 'vimgit::lang'->lang2ext ($lang);
   
-  my $filename = "$edtr->{TOP}/search=/defn.word=$word.rank=$rank$ext";
+  my $filename = "$edtr->{ROOT}/search=/defn.word=$word.rank=$rank$ext";
   my $fh = 'FileHandle'->new (">$filename");
 
   my ($TEXT, $fl1) = $class->pretty_grep (word => $word, regex => $regex, 

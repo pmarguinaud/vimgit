@@ -15,6 +15,8 @@ use FileHandle;
 use Getopt::Long;
 use Data::Dumper;
 use File::Path;
+use Cwd;
+
 use vimgit::mini;
 
 our $BIN;
@@ -66,6 +68,7 @@ my %opts = (map ({ ($_, 0), } @opts_f), L => '.');
 $opts{L} = [map { 'File::Spec'->rel2abs ($_) } split (m/,/o, $opts{L} || '.')];
 
 my $HOME = (getpwuid $>)[7];
+my $ROOT = &cwd () . '/.vimgit';
 
 my @TOP;
 
@@ -79,20 +82,20 @@ for my $L (@{ $opts{L} })
 
 if ($opts{i})
   {
-    my $e = 'vimgit'->new (TOP => "@TOP", HOME => "$HOME");
+    my $e = 'vimgit'->new (TOP => "@TOP", HOME => "$HOME", ROOT => "$ROOT");
 
     $e->{fhlog} = \*STDOUT;
     $e->idx ();
     exit (0);
   }
 
-&mkpath ("$HOME/.vimgit") unless (-d "$HOME/.vimgit");
+&mkpath ($ROOT) unless (-d $ROOT);
 
-my $fCOM = "$HOME/.vimgit/vimpack.vim"; my $hCOM = 'FileHandle'->new (">$fCOM"); 
-my $fHLP = "$HOME/.vimgit/vimpack.txt"; my $hHLP = 'FileHandle'->new (">$fHLP"); my $dHLP = &dirname ($fHLP);
+my $fCOM = "$ROOT/vimgit.vim"; my $hCOM = 'FileHandle'->new (">$fCOM"); 
+my $fHLP = "$ROOT/vimgit.txt"; my $hHLP = 'FileHandle'->new (">$fHLP"); my $dHLP = &dirname ($fHLP);
+
 
 $hCOM->print (<< "EOF");
-
 
 set helpfile=$fHLP
 helptags $dHLP
@@ -108,7 +111,7 @@ use lib "$BIN/lib", "$BIN/perl5";
 use strict; 
 use warnings; 
 use vimgit; 
-our \$EDITOR = 'vimgit'->new (TOP => "@TOP", WARN => $opts{w}, HOME => "$HOME"); 
+our \$EDITOR = 'vimgit'->new (TOP => "@TOP", WARN => $opts{w}, HOME => "$HOME", ROOT => "$ROOT"); 
 .
 
 EOF
