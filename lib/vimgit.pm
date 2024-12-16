@@ -52,7 +52,7 @@ sub getsindex
          my $hash;
          for $hash (@$hashlist)
            {
-             my $f = "$TOP/$hash/sindex.db";
+             my $f = "$TOP/.vimgit/$hash/sindex.db";
              return $hash if (-f $f);
            }
        })->();
@@ -79,7 +79,9 @@ sub getsindex
             {
               if (($m eq '+') || ($m eq 'M'))
                 {
-                  &wanted_windex_ (sindex => \%s, fhlog => $self->{fhlog}, file => "$TOP/$f");
+                  &wanted_windex_ (sindex => \%s, fhlog => $self->{fhlog}, 
+                                   file => "$TOP/$f", top => $TOP, 
+                                   excl => $self->{EXCL});
                 }
             }
      
@@ -97,7 +99,7 @@ sub getsindex
             {
               my $hash = $hash{$TOP};
               my %SINDEX;
-              tie (%SINDEX,  'DB_File', "$TOP/$hash/sindex.db", O_RDONLY);
+              tie (%SINDEX,  'DB_File', "$TOP/.vimgit/$hash/sindex.db", O_RDONLY);
               push @{ $self->{SINDEX} }, $TOP, \%SINDEX;
             }
          }
@@ -122,7 +124,7 @@ sub getwindex
          my $hash;
          for $hash (@$hashlist)
            {
-             my $f = "$TOP/$hash/sindex.db";
+             my $f = "$TOP/.vimgit/$hash/sindex.db";
              return $hash if (-f $f);
            }
        })->();
@@ -144,7 +146,7 @@ sub getwindex
       my %windex;
       my %findex;
 
-      tie (%WINDEX,  'DB_File', "$TOP/$hash/windex.db", O_RDONLY);
+      tie (%WINDEX,  'DB_File', "$TOP/.vimgit/$hash/windex.db", O_RDONLY);
       
       {
         my %b;
@@ -152,7 +154,9 @@ sub getwindex
           {
             if (($m eq '+') || ($m eq 'M'))
               {
-                &wanted_windex_ (windex => \%b, findex => \%findex, file => $f, fhlog => $self->{fhlog});
+                &wanted_windex_ (windex => \%b, findex => \%findex, 
+                                 file => $f, fhlog => $self->{fhlog}, 
+                                 top => $TOP, excl => $self->{EXCL});
               }
           }
 
@@ -200,7 +204,15 @@ sub edit
 
       for my $TOP (@{ $self->{TOP} })
         {
-          last if ($P = $sindex{$TOP}{$F});
+          if ($P = $sindex{$TOP}{$F})
+	    {
+              $P = "$TOP/$P";
+              if (-f $P)
+                {
+                  push @HlF, [ $P, $line, $column, $F ];
+                }
+              last;
+            }
         }
 
       unless ($P)
@@ -209,10 +221,6 @@ sub edit
           next;
         }
       
-      if (-f $P)
-        {
-          push @HlF, [ $P, $line, $column, $F ];
-        }
       
     }
 

@@ -18,7 +18,8 @@ sub new
 
   my %args = @_;
 
-  $args{TOP} = [split (m/\s+/o, $args{TOP})];
+  $args{TOP}  = [split (m/\s+/o, $args{TOP} )];
+  $args{EXCL} = [split (m/\s+/o, $args{EXCL})];
 
   my $self = bless 
                { 
@@ -55,37 +56,41 @@ sub wanted_windex_
 
   my %args = @_;
 
-  my $windex   = $args{windex};
-  my $findex   = $args{findex};
-  my $sindex   = $args{sindex};
-  my $fhlog    = $args{fhlog};
-  my $callback = $args{callback};
-  my $f = $args{file};
+  my $windex = $args{windex};
+  my $findex = $args{findex};
+  my $sindex = $args{sindex};
+  my $fhlog  = $args{fhlog};
+  my $top    = $args{top};
+  my $file   = $args{file};
+  my $excl   = $args{excl};
 
 # skip non file elements
-  return unless (-f $f);
-  return if ($f =~ m/\.vimgit\b/o);
+  return unless (-f $file);
+  return if ($file =~ m/\.vimgit\b/o);
 
-  $f =~ s,^\./,,o;
+  for my $excl (@$excl)
+    {
+      return if (index ($file, $excl) == 0);
+    }
+
+  $file =~ s,^\./,,o;
 
   if ($sindex)
     {
-      push @{ $sindex->{&basename ($f)} }, $f;
+      push @{ $sindex->{&basename ($file)} }, 'File::Spec'->abs2rel ($file, $top);
     }
 
 # fortran & C & C++
-  return unless ($f =~ m/\.(f90|f|c|cc)$/io);
+  return unless ($file =~ m/\.(f90|f|c|cc)$/io);
 
-  $callback && $callback->($f);
-
-  $fhlog && $fhlog->print ("$f\n");
+  $fhlog && $fhlog->print ("$file\n");
 
   my $text;
 
   if ($windex)
     {
-      $text = do { my $fh = 'FileHandle'->new ("<$f"); local $/ = undef; <$fh> };
-      &windex_ ($f, $windex, $text);
+      $text = do { my $fh = 'FileHandle'->new ("<$file"); local $/ = undef; <$fh> };
+      &windex_ ($file, $windex, $text);
     }
 }
 
@@ -105,26 +110,25 @@ sub idx
      
       my ($hash) = @$hashlist;
      
-      unless ((-f "$TOP/$hash/windex.db") && (-f "$TOP/$hash/sindex.db"))
+      unless ((-f "$TOP/.vimgit/$hash/windex.db") && (-f "$TOP/.vimgit/$hash/sindex.db"))
         {
-          &mkpath ("$TOP/$hash");
+          &mkpath ("$TOP/.vimgit/$hash");
           my %windex;
           my %findex;
           my %sindex;
      
-          mkdir ($TOP);
-     
           my $follow = 0;
           &File::Find::find ({wanted => sub { &wanted_windex_ (windex => \%windex, findex => \%findex, 
                                                                sindex => \%sindex, fhlog  => $fhlog, 
+                                                               top => $TOP, excl => $self->{EXCL},
             						       file => $File::Find::name); },
-                             no_chdir => 1, follow => $follow}, &dirname ($TOP));
+                             no_chdir => 1, follow => $follow}, $TOP);
       
-          tie (my %WINDEX,  'DB_File', "$TOP/$hash/windex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
+          tie (my %WINDEX,  'DB_File', "$TOP/.vimgit/$hash/windex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
           &cidx (\%windex, \%WINDEX);
           untie (%WINDEX);
      
-          tie (my %SINDEX,  'DB_File', "$TOP/$hash/sindex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
+          tie (my %SINDEX,  'DB_File', "$TOP/.vimgit/$hash/sindex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
           &cidx (\%sindex, \%SINDEX);
           untie (%SINDEX);
      

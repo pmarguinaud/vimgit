@@ -56,33 +56,31 @@ sub bt
 $SIG{__WARN__} = \&bt;
 $SIG{__DIE__} = \&bt;
 
-my @opts_f = qw (d v i g b w h x);
-my @opts_s = qw (L);
-my %opts = (map ({ ($_, 0), } @opts_f), L => '.');
+my @opts_f = qw (v i g b w);
+my @opts_s = qw (L X);
+my %opts = (map ({ ($_, 0), } @opts_f), L => '.', X => '');
+
 &GetOptions 
 (
   map ({ ($_, \$opts{$_}) } @opts_f),
   map ({ ("$_=s", \$opts{$_}) } @opts_s),
 );
 
-$opts{L} = [map { 'File::Spec'->rel2abs ($_) } split (m/,/o, $opts{L} || '.')];
+$opts{L} = [split (m/,/o, $opts{L})];
+$opts{X} = [split (m/,/o, $opts{X})];
 
 my $HOME = (getpwuid $>)[7];
 my $ROOT = &cwd () . '/.vimgit';
 
-my @TOP;
-
-for my $L (@{ $opts{L} }) 
-  {
-    die ("Directory `$L' does not exist\n") unless (-d $L);
-    my $dir = "$L/.vimgit";
-    &mkpath ($dir) unless (-d $dir);
-    push @TOP, $dir;
-  }
-
 if ($opts{i})
   {
-    my $e = 'vimgit'->new (TOP => "@TOP", HOME => "$HOME", ROOT => "$ROOT");
+    my $e = 'vimgit'->new 
+    (
+      TOP  => "@{$opts{L}}", 
+      HOME => "$HOME", 
+      ROOT => "$ROOT", 
+      EXCL => "@{$opts{X}}",
+   );
 
     $e->{fhlog} = \*STDOUT;
     $e->idx ();
@@ -111,7 +109,14 @@ use lib "$BIN/lib", "$BIN/perl5";
 use strict; 
 use warnings; 
 use vimgit; 
-our \$EDITOR = 'vimgit'->new (TOP => "@TOP", WARN => $opts{w}, HOME => "$HOME", ROOT => "$ROOT"); 
+our \$EDITOR = 'vimgit'->new 
+(
+  TOP  => "@{$opts{L}}", 
+  WARN => $opts{w}, 
+  HOME => "$HOME", 
+  ROOT => "$ROOT", 
+  EXCL => "@{$opts{X}}",
+); 
 .
 
 EOF
