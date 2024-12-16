@@ -45,8 +45,8 @@ sub getfiles
           (split (m/\s+/o, $windex->{$word}), 
            grep ({ ! $findex->{$_} } split (m/\s+/o, $WINDEX->{$word})));
     }
- 
-  my %f = @f;
+
+  my %f = map { ($_, 1) } @f;
   @f = sort keys (%f);
   return \@f;
 }
@@ -67,7 +67,7 @@ sub create
   my $lang   = 'vimgit::lang'->lang ($curbuf->Name ());
 
   my $files = $class->getfiles (word => $word, editor => $edtr);
-  
+
 # @f = @f[$rank .. $rank + $self->{maxfind}];
 
   unless (@$files) 

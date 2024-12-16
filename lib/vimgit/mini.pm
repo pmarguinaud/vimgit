@@ -65,6 +65,7 @@ sub wanted_windex_
   my $excl   = $args{excl};
 
 # skip non file elements
+
   return unless (-f $file);
   return if ($file =~ m/\.vimgit\b/o);
 
