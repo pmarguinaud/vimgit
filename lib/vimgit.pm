@@ -37,9 +37,7 @@ sub getsindex
 {
 # get file location index; local index is built on the fly
 
-  my ($self, @args) = @_;
-
-  my %args = map { ($_, 1) } @args;
+  my ($self) = @_;
 
   my %hash;
       
@@ -69,41 +67,31 @@ sub getsindex
       my $hash = $hash{$TOP};
      
       my $m = 'vimgit::git'->getDiff (repo => $TOP, hash => $hash);
-     
-      if ($args{sindex})
+
+      my %s;
+      my %sindex;
+
+      while (my ($f, $m) = each (%$m))
         {
-          my %s;
-          my %sindex;
-     
-          while (my ($f, $m) = each (%$m))
+          if (($m eq '+') || ($m eq 'M'))
             {
-              if (($m eq '+') || ($m eq 'M'))
-                {
-                  &wanted_windex_ (sindex => \%s, fhlog => $self->{fhlog}, 
-                                   file => "$TOP/$f", top => $TOP, 
-                                   excl => $self->{EXCL});
-                }
+              &wanted_windex_ (sindex => \%s, fhlog => $self->{fhlog}, 
+                               file => "$TOP/$f", top => $TOP, 
+                               excl => $self->{EXCL});
             }
-     
-          &cidx (\%s, \%sindex);
-     
-          push @i, $TOP, \%sindex;
         }
-    }
-      
-  if ($args{SINDEX})
-    {
+     
+      &cidx (\%s, \%sindex);
+
       unless ($self->{SINDEX})
         {
-          for my $TOP (@{ $self->{TOP} })
-            {
-              my $hash = $hash{$TOP};
-              my %SINDEX;
-              tie (%SINDEX,  'DB_File', "$TOP/.vimgit/$hash/sindex.db", O_RDONLY);
-              push @{ $self->{SINDEX} }, $TOP, \%SINDEX;
-            }
-         }
-      push @i, @{ $self->{SINDEX} };
+          my $hash = $hash{$TOP};
+          my %SINDEX;
+          tie (%SINDEX,  'DB_File', "$TOP/.vimgit/$hash/sindex.db", O_RDONLY);
+          $self->{SINDEX}{$TOP} = \%SINDEX;
+        }
+
+      push @i, $TOP, \%sindex, $self->{SINDEX}{$TOP};
     }
 
   return @i;
@@ -111,7 +99,7 @@ sub getsindex
 
 sub getwindex
 {
-  my ($self, @args) = @_;
+  my ($self) = @_;
 
   my %hash;
       
@@ -155,7 +143,7 @@ sub getwindex
             if (($m eq '+') || ($m eq 'M'))
               {
                 &wanted_windex_ (windex => \%b, findex => \%findex, 
-                                 file => $f, fhlog => $self->{fhlog}, 
+                                 file => "$TOP/$f", fhlog => $self->{fhlog}, 
                                  top => $TOP, excl => $self->{EXCL});
               }
           }
@@ -176,7 +164,7 @@ sub edit
 
   my ($self, %args) = @_;
 
-  my %sindex = $self->getsindex (qw (sindex SINDEX));
+  my @sindex = $self->getsindex ();
 
   my @HlF;
 
@@ -202,9 +190,11 @@ sub edit
   
       my $P;
 
-      for my $TOP (@{ $self->{TOP} })
+      my @s = @sindex;
+
+      while (my ($TOP, $sindex, $SINDEX) = splice (@s, 0, 3))
         {
-          if ($P = $sindex{$TOP}{$F})
+          if ($P = $sindex->{$F} || $SINDEX->{$F})
 	    {
               $P = "$TOP/$P";
               if (-f $P)

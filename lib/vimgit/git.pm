@@ -43,7 +43,7 @@ sub getDiff
 
   my %m;
 
-  for (split (m/\n/o, &runGitCommand ("git -C $repo diff --name-status -- $args{hash}")))
+  for (split (m/\n/o, &runGitCommand ("git -C $repo diff --name-status $args{hash}")))
     {
       chomp;
       my ($m, $f, $g) = split (m/\s+/o);
