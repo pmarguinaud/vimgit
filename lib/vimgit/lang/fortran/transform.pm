@@ -3,7 +3,7 @@ package vimgit::lang::fortran::transform;
 use strict;
 use FindBin qw ($Bin);
 
-my $fxtran = "/home/gmap/mrpm/marguina/bin/fxtran";
+my $fxtran = 'fxtran';
 
 sub xml_parse
 {

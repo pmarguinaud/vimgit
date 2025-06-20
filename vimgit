@@ -9,6 +9,9 @@ use strict;
 
 use FindBin qw ($Bin);
 use lib "$Bin/lib";
+
+use local::lib;
+
 use File::Basename;
 use File::Spec;
 use FileHandle;
