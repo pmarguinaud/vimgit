@@ -28,12 +28,16 @@ sub do_find
   if ($defn)
     {
 
+# definitions start a statement (not a comment, not END SUBROUTINE); prefixes allowed
+
+      my $routine = qr/^\s*(?:(?:pure|impure|elemental|recursive|non_recursive|module)\s+)*(?:subroutine|interface)\s+$word\b/i;
+
       if ($linea =~ m/\bcall\s*$/io)
         {
 
 # search for subroutine definition
 
-          return $edtr->find (word => $word, defn => 1, regex => qr/(?:subroutine|interface)\s*$word\b/i, hist => 1, lang => 'fortran');
+          return $edtr->find (word => $word, defn => 1, regex => $routine, hist => 1, lang => 'fortran');
 
         }
       elsif ($linea =~ m/%\s*$/io)
@@ -47,7 +51,7 @@ sub do_find
 
 # search for module definition
 
-          return $edtr->find (word => $word, defn => 1, regex => qr/module\s*$word\b/i, hist => 1, lang => 'fortran');
+          return $edtr->find (word => $word, defn => 1, regex => qr/^\s*module\s+$word\b/i, hist => 1, lang => 'fortran');
 
         }
       elsif (($linea =~ m/#include\s*"$/o) && ($lineb =~ m/^(?:\.intfb)?\.h"\s*$/o))
@@ -55,15 +59,15 @@ sub do_find
 
 # search for routine definition
 
-          return $edtr->find (word => $word, defn => 1, regex => qr/(?:subroutine|interface)\s*$word\b/i, hist => 1, lang => 'fortran');
+          return $edtr->find (word => $word, defn => 1, regex => $routine, hist => 1, lang => 'fortran');
 
         }
-      elsif (($linea =~ m/^\s*type\s*\(\s*$/io) && ($lineb =~ m/^\s*\)/io))
+      elsif (($linea =~ m/^\s*(?:type|class)\s*\(\s*$/io) && ($lineb =~ m/^\s*\)/io))
         {
-      
-# search for type definition
 
-          return $edtr->find (word => $word, defn => 1, regex => qr/(?:type)\s*$word\b/i, hist => 1, lang => 'fortran');
+# search for type definition : TYPE X, TYPE :: X, TYPE, EXTENDS(Y), ... :: X
+
+          return $edtr->find (word => $word, defn => 1, regex => qr/^\s*type\b(?:\s*,[^:]*::|\s*::)?\s*$word\b/i, hist => 1, lang => 'fortran');
 
         }
 

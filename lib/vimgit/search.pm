@@ -9,6 +9,11 @@ use Data::Dumper;
 
 use base qw (vimgit::file);
 
+# above $GITGREP files, results are produced by git; $WIDTH lines around each match
+
+our $GITGREP = 200;
+our $WIDTH = 2;
+
 sub new
 {
   my $class = shift;
@@ -17,7 +22,10 @@ sub new
 
   if ($self->{file})
     {
-      ($self->{word}, $self->{rank}) = ($self->{file} =~ m/word=(\w+).*rank=(\d+)/o);
+# word=<word>[.repo=<repository, / written ,>].rank=<first file shown>
+
+      ($self->{word}, $self->{repo}, $self->{rank}) = ($self->{file} =~ m/word=(\w+)(?:\.repo=(.+?))?\.rank=(\d+)/o);
+      $self->{repo} =~ s|,|/|go if (defined ($self->{repo}));
       $self->{lang} = 'vimgit::lang'->lang ($self->{file});
     }
   else
@@ -35,12 +43,9 @@ sub getfiles
   my $word = $args{word};
   my $edtr = $args{editor};
 
-  my ($WINDEX, $windex, $findex) = $edtr->getwindex ();
+# repositories in config order, files sorted in each
 
-  my %f = map { ($_, 1) }
-          (split (m/\s+/o, $windex->{$word}), 
-           grep ({ ! $findex->{$_} } split (m/\s+/o, $WINDEX->{$word})));
-  my @f = sort keys (%f);
+  my @f = $edtr->{workspace}->files_for_word ($word, repo => $args{repo});
 
   return \@f;
 }
@@ -60,9 +65,7 @@ sub create
   my $curbuf = $edtr->getcurbuf ();
   my $lang   = 'vimgit::lang'->lang ($curbuf->Name ());
 
-  my $files = $class->getfiles (word => $word, editor => $edtr);
-  
-# @f = @f[$rank .. $rank + $self->{maxfind}];
+  my $files = $class->getfiles (word => $word, editor => $edtr, repo => $args{repo});
 
   unless (@$files) 
     {
@@ -83,13 +86,21 @@ sub create
 
   my $ext = 'vimgit::lang'->lang2ext ($lang);
 
-  my $filename = "$edtr->{TOP}/search=/word=$word.rank=$rank$ext";
-  my $fh = 'FileHandle'->new (">$filename");
-  
+  my $scope = defined ($args{repo}) ? '.repo=' . ($args{repo} =~ s|/|,|gr) : '';
 
-  my ($TEXT, $fl1) = $class->pretty_grep (word => $word, editor => $edtr, files => $files);
+  my $filename = "$edtr->{TOP}/search=/word=$word$scope.rank=$rank$ext";
+  my $fh = 'FileHandle'->new (">$filename");
+
+# one page : maxfind files from $rank; a <<<< >>>> line at the end leads to the next page
+
+  my $max = $edtr->{maxfind};
+  $rank = 0 if ($rank > $#$files);
+  my $last = &min ($rank + $max, scalar (@$files)) - 1;
+
+  my ($TEXT, $fl1) = $class->pretty_grep (word => $word, editor => $edtr, files => [ @{$files}[$rank .. $last] ]);
 
   $fh->print (join ('', @$TEXT));
+  $fh->print ("\n<<<< >>>>\n") if ($last < $#$files);
 
   $fh->close ();
   
@@ -105,8 +116,15 @@ sub create
 # make a search to highlight word
       &VIM::DoCommand ("/\\c\\<$word\\>");
 
-      &VIM::Msg (sprintf ("`%s' was found in %d files", $word, scalar (@$files)));
-
+      if (@$files > $max)
+        {
+          &VIM::Msg (sprintf ("`%s' was found in %d files; files %d to %d shown%s", $word, scalar (@$files),
+                              $rank + 1, $last + 1, ($last < $#$files ? '; <TAB> on <<<< >>>> for the next ones' : '')));
+        }
+      else
+        {
+          &VIM::Msg (sprintf ("`%s' was found in %d files", $word, scalar (@$files)));
+        }
 
     }
 
@@ -199,14 +217,14 @@ sub create_defn
       return undef;
     }
 
-  unless (grep { $fl1->[0][0] != $_->[0] } @$fl1)
+  unless (grep { $fl1->[0][0] ne $_->[0] } @$fl1)
     {
 
 # a single file was matched; change to this file
 
       my ($f, $l) = @{ $fl1->[0] };
 
-      $edtr->edit (files => [ &basename ($f) . ":$l" ], hist => 0);
+      $edtr->edit (files => [ "$f:$l" ], hist => 0);
 
     }
 
@@ -228,13 +246,16 @@ sub do_find
   
   my ($line) = $curbuf->Get ($row);
 
-  if ($line =~ m/^\S+\.F(?:90)?(?::\d+)?$/io)
+# a file line : path of an indexed file, maybe followed by :line
+
+  my $isfile = sub { my ($f) = ($_[0] =~ m/^(\S+?)(?::\d+)?$/o); return ($f && ($f =~ 'vimgit::lang'->indexed ())) ? $f : undef };
+
+  if ($isfile->($line))
     {
 
 # search file
 
-      my $filename_line = &basename ($line);
-      return $edtr->edit (files => [ $filename_line ], hist => $hist);
+      return $edtr->edit (files => [ $line ], hist => $hist);
     }
 
   if ($line =~ m/^(\s*)(\d+)(\s*)\|/io)
@@ -249,10 +270,9 @@ sub do_find
           while ($row > 0)
             {
               $line = $curbuf->Get ($row);
-              if ($line =~ m/^(\S+\.F(?:90)?)(?::\d+)?$/io)
+              if (my $f = $isfile->($line))
                 {
-                  my $filename = &basename ($1);
-                  my $filename_line = "$filename:$ln";
+                  my $filename_line = "$f:$ln";
                   return $edtr->edit (files => [ $filename_line ], hist => $hist);
                 }
               $row--;
@@ -263,7 +283,7 @@ sub do_find
     {
       my ($word, $rank) = ($self->{word}, $self->{rank});
       $rank += $edtr->{maxfind};
-      return $edtr->find (word => $word, rank => $rank, hist => $hist);
+      return $edtr->find (word => $word, rank => $rank, hist => $hist, repo => $self->{repo});
     }
 
   $self->vimgit::source::do_find (%args);
@@ -280,6 +300,46 @@ sub pretty_grep
 
   my (@TEXT, @fl1);
 
+# many files : git reads them, several processes in parallel
+
+  if ((@{ $args{files} } > $GITGREP) && (! $args{nogit}))
+    {
+      my $sets = $edtr->{workspace}->sets (@{ $args{files} });
+
+      if ($regex)
+        {
+
+# keep the files where a line matches the regex, then format them below
+
+          my $hit = 'vimgit::git'->grepFiles (sets => $sets, word => $word, context => 0);
+          my @f = grep { my $f = $_; grep { $_->[1] =~ $regex } @{ $hit->{$f} || [] } } @{ $args{files} };
+          return $class->pretty_grep (%args, files => \@f, nogit => 1);
+        }
+
+      my $hit = 'vimgit::git'->grepFiles (sets => $sets, word => $word, context => $WIDTH);
+
+      for my $f (@{ $args{files} })
+        {
+          my $h = $hit->{$f} or next;
+
+          my $TEXT = "\n$f\n\n";
+          my $prev;
+
+          for (@$h)
+            {
+              my ($n, $text) = @$_;
+              $TEXT .= "...\n" if (defined ($prev) && ($n > $prev + 1));
+              $TEXT .= sprintf ("%6d | %s", $n, $text);
+              $prev = $n;
+            }
+
+          push @TEXT, $TEXT;
+          push @fl1, [ $f, $h->[0][0] ];
+        }
+
+      return (\@TEXT, \@fl1);
+    }
+
   for my $f (@{ $args{files} })
     {
       next unless (my $fhF = 'FileHandle'->new ("<$f"));
@@ -287,7 +347,7 @@ sub pretty_grep
       $fhF->close ();
   
 # number of lines before/after match
-      my $width = 2;
+      my $width = $WIDTH;
  
 # have we printed something for this file ?
       my $pr = 0;

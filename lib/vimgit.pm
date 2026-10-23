@@ -2,9 +2,6 @@ package vimgit;
 
 use strict;
 
-use DB_File;
-use Fcntl qw (O_RDONLY);
-
 use File::Spec;
 use File::Basename;
 use File::Path;
@@ -34,106 +31,6 @@ sub setlog
     }
 }
 
-sub getsindex
-{
-# get file location index; local index is built on the fly
-
-  my ($self, @args) = @_;
-
-  my $hashlist = 'vimgit::git'->getHashList ();
-  
-  my $hash = (sub
-  {
-    my $hash;
-    for $hash (@$hashlist)
-      {
-        my $f = "$self->{TOP}/$hash/sindex.db";
-        return $hash if (-f $f);
-      }
-  })->();
-
-  $hash or die ("No index was found");
-
-  my $m = 'vimgit::git'->getDiff (hash => $hash);
-
-  my %args = map { ($_, 1) } @args;
-
-  my @i;
-
-  if ($args{sindex})
-    {
-      my %s;
-
-      my %sindex;
-
-      while (my ($f, $m) = each (%$m))
-        {
-          if (($m eq '+') || ($m eq 'M'))
-	    {
-              &wanted_windex_ (sindex => \%s, fhlog => $self->{fhlog}, file => $f);
-	    }
-        }
-
-      &cidx (\%s, \%sindex);
-
-      push @i, \%sindex;
-    }
-
-  if ($args{SINDEX})
-    {
-      unless ($self->{SINDEX})
-        {
-          my %SINDEX;
-          tie (%SINDEX,  'DB_File', "$self->{TOP}/$hash/sindex.db", O_RDONLY);
-          $self->{SINDEX} = \%SINDEX;
-        }
-      push @i, $self->{SINDEX};
-    }
-
-  return @i;
-}
-
-sub getwindex
-{
-  my ($self, @args) = @_;
-
-  my $hashlist = 'vimgit::git'->getHashList ();
-  
-  my $hash = (sub
-  {
-    my $hash;
-    for $hash (@$hashlist)
-      {
-        my $f = "$self->{TOP}/$hash/sindex.db";
-        return $hash if (-f $f);
-      }
-  })->();
-
-  $hash or die ("No index was found");
-
-  my $m = 'vimgit::git'->getDiff (hash => $hash);
-
-  my %WINDEX;
-  my %windex;
-  my %findex;
-
-  tie (%WINDEX,  'DB_File', "$self->{TOP}/$hash/windex.db", O_RDONLY);
-  
-  {
-    my %b;
-    while (my ($f, $m) = each (%$m))
-      {
-        if (($m eq '+') || ($m eq 'M'))
-          {
-            &wanted_windex_ (windex => \%b, findex => \%findex, file => $f, fhlog => $self->{fhlog});
-          }
-      }
-    &cidx (\%b, \%windex);
-  }
-
-  return (\%WINDEX, \%windex, \%findex);
-}
-
 sub edit
 {
 
@@ -141,20 +38,15 @@ sub edit
 
   my ($self, %args) = @_;
 
-  my ($sindex, $SINDEX) = $self->getsindex (qw (sindex SINDEX));
-
   my @HlF;
 
 # prepare file list
 
-  for my $F (@{ $args{files} })
+  for my $F0 (@{ $args{files} })
     {
+      my $F = $F0;
+
       my ($line, $column) = ('', '');
-
-      my $Q = 'File::Spec'->canonpath (&dirname ($F));
-      $Q = $Q eq '.' ? '' : $Q;
-
-      $F = &basename ($F);
 
       if ($F =~ s/:(\d+)(?:(?:\.|:)(\d+))?$//go)
         {
@@ -164,27 +56,42 @@ sub edit
         {
           ($line) = ($1);
         }
-  
-      my $P = $sindex->{$F} || $SINDEX->{$F};
 
-      unless ($P)
+# a path to an existing file is used as is; otherwise look up the basename in the indexes
+
+      my @P;
+
+      if ((&basename ($F) ne $F) && (-f $F))
+        {
+          @P = ('File::Spec'->canonpath ($F));
+        }
+      else
+        {
+          $F = &basename ($F);
+          my %seen;
+          @P = grep { (! $seen{$_}++) && (-f $_) } $self->{workspace}->paths_for_name ($F);
+        }
+
+      unless (@P)
         {
           &VIM::DoCommand ("echohl WarningMsg | echo \"`$F' was not found; skip...\" | echohl None");
           next;
         }
-      
-      if (-f $P)
-        {
-          push @HlF, [ $P, $line, $column, $F ];
-        }
-      
+
+# several files with the same name : let the user choose
+
+      my $P = @P > 1 ? $self->pick (@P) : $P[0];
+
+      push @HlF, [ $P, $line, $column ]
+        if ($P);
+
     }
 
 # open files; vertical split
 
   for my $i (reverse (0 .. $#HlF))
     {
-      my ($H, $line, $column, $F) = @{ $HlF[$i] };
+      my ($H, $line, $column) = @{ $HlF[$i] };
 
       my $f = 'vimgit::source'->new (file => $H);
 
@@ -192,7 +99,7 @@ sub edit
 
       if ($args{hist})
         {
-          my $Flc = $F;
+          my $Flc = $H;
           $Flc .= ":$line" if ($line);
           $Flc .= ".$column" if ($column);
           $self->{history}->push ($self->getcurwin (), 'edit', %args, files => [ $Flc ]);
@@ -202,7 +109,22 @@ sub edit
         if ($i > 0);
     }
 
-  
+
+}
+
+sub pick
+{
+
+# ask the user to choose a file among several paths
+
+  my ($self, @P) = @_;
+
+  my @list = ('Select file:', map { sprintf ('%d. %s', $_ + 1, $P[$_]) } (0 .. $#P));
+  my $list = join (', ', map { (my $s = $_) =~ s/'/''/go; "'$s'" } @list);
+
+  my ($ok, $i) = &VIM::Eval ("inputlist ([$list])");
+
+  return ($ok && ($i >= 1) && ($i <= @P)) ? $P[$i-1] : undef;
 }
 
 sub EDIT
@@ -300,6 +222,21 @@ sub FIND
 
   eval
     {
+
+# current : search the repository of the current buffer only
+
+      if (delete $args{current})
+        {
+          no warnings;
+          my ($repo) = $self->{workspace}->repo_of ('File::Spec'->abs2rel ($main::curbuf->Name ()));
+          unless ($repo)
+            {
+              &VIM::Msg ('The current buffer is not in a repository of the workspace');
+              return;
+            }
+          $args{repo} = $repo->name ();
+        }
+
       if ($args{new_window})
         {
           &VIM::DoCommand (':split');
@@ -327,6 +264,14 @@ sub find
     }
 
 
+# the index holds words only
+
+  unless ($args{word} =~ m/^\w+$/o)
+    {
+      &VIM::Msg ("`$args{word}' is not a word");
+      return;
+    }
+
   if ($args{hist})
     {
       $self->{history}->push ($self->getcurwin (), 'find', %args);
@@ -334,13 +279,14 @@ sub find
 
 
   my $word  = lc ($args{word});
+
   my $regex = $args{regex};
   my $rank  = $args{rank} || 0;
   my $defn  = $args{defn};
   my $call  = $args{call};
 
   return 'vimgit::search'->create (editor => $self, word => $word, regex => $regex, 
-                                   rank => $rank, defn => $defn, call => $call);
+                                   rank => $rank, defn => $defn, call => $call, repo => $args{repo});
 }
 
 sub BACK
@@ -392,5 +338,39 @@ sub COMMIT
  
 }
 
-1;
+sub UPDATE
+{
 
+# a file was written : scan it again, unless it is outside the repositories, 
+# in .vimgit, or ignored by git
+
+  my $self = shift;
+
+  eval
+    {
+      no warnings;
+      my $f = 'File::Spec'->abs2rel ($main::curbuf->Name ());
+
+      return if ($f =~ m/\.vimgit\b/o);
+
+      my ($repo, $rel) = $self->{workspace}->repo_of ($f);
+
+      $repo && $repo->update ($rel);
+    };
+
+  $self->reportbug ($@);
+}
+
+sub REFRESH
+{
+
+# :R; forget everything, files are scanned again at the next search
+
+  my $self = shift;
+
+  $_->drop () for ($self->{workspace}->repos ());
+
+  &VIM::Msg ('vimgit: cache dropped');
+}
+
+1;
