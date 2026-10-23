@@ -33,30 +33,24 @@ sub getDiff
 
   my %m;
 
-  for (split (m/\n/o, `$GIT diff --name-status $args{hash}`))
+# no renames : a single path per entry; -z : status and path separated by NUL
+
+  my @m = split (m/\0/o, `$GIT diff --name-status --no-renames -z $args{hash}`);
+
+  while (my ($m, $f) = splice (@m, 0, 2))
     {
-      chomp;
-      my ($m, $f, $g) = split (m/\s+/o);
-      if ($m eq 'M')
+      if ($m eq 'D')
         {
-          $m{$f} = 'M';
+          $m{$f} = '-';
         }
       elsif ($m eq 'A')
         {
           $m{$f} = '+';
         }
-      elsif ($m eq 'D')
-        {
-          $m{$f} = '-';
-        }
-      elsif ($m =~ m/^R/o)
-        {
-          $m{$f} = '-';
-	  $m{$g} = '+';
-	}
       else
         {
-          die $_;
+# M, T (type change), U (unmerged), etc. : scan the working tree file
+          $m{$f} = 'M';
         }
     }
 
