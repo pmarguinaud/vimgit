@@ -199,7 +199,7 @@ sub create_defn
       return undef;
     }
 
-  unless (grep { $fl1->[0][0] != $_->[0] } @$fl1)
+  unless (grep { $fl1->[0][0] ne $_->[0] } @$fl1)
     {
 
 # a single file was matched; change to this file
