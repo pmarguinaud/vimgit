@@ -22,7 +22,10 @@ sub new
 
   if ($self->{file})
     {
-      ($self->{word}, $self->{rank}) = ($self->{file} =~ m/word=(\w+).*rank=(\d+)/o);
+# word=<word>[.repo=<repository, / written ,>].rank=<first file shown>
+
+      ($self->{word}, $self->{repo}, $self->{rank}) = ($self->{file} =~ m/word=(\w+)(?:\.repo=(.+?))?\.rank=(\d+)/o);
+      $self->{repo} =~ s|,|/|go if (defined ($self->{repo}));
       $self->{lang} = 'vimgit::lang'->lang ($self->{file});
     }
   else
@@ -63,8 +66,6 @@ sub create
   my $lang   = 'vimgit::lang'->lang ($curbuf->Name ());
 
   my $files = $class->getfiles (word => $word, editor => $edtr, repo => $args{repo});
-  
-# @f = @f[$rank .. $rank + $self->{maxfind}];
 
   unless (@$files) 
     {
@@ -85,13 +86,21 @@ sub create
 
   my $ext = 'vimgit::lang'->lang2ext ($lang);
 
-  my $filename = "$edtr->{TOP}/search=/word=$word.rank=$rank$ext";
-  my $fh = 'FileHandle'->new (">$filename");
-  
+  my $scope = defined ($args{repo}) ? '.repo=' . ($args{repo} =~ s|/|,|gr) : '';
 
-  my ($TEXT, $fl1) = $class->pretty_grep (word => $word, editor => $edtr, files => $files);
+  my $filename = "$edtr->{TOP}/search=/word=$word$scope.rank=$rank$ext";
+  my $fh = 'FileHandle'->new (">$filename");
+
+# one page : maxfind files from $rank; a <<<< >>>> line at the end leads to the next page
+
+  my $max = $edtr->{maxfind};
+  $rank = 0 if ($rank > $#$files);
+  my $last = &min ($rank + $max, scalar (@$files)) - 1;
+
+  my ($TEXT, $fl1) = $class->pretty_grep (word => $word, editor => $edtr, files => [ @{$files}[$rank .. $last] ]);
 
   $fh->print (join ('', @$TEXT));
+  $fh->print ("\n<<<< >>>>\n") if ($last < $#$files);
 
   $fh->close ();
   
@@ -107,8 +116,15 @@ sub create
 # make a search to highlight word
       &VIM::DoCommand ("/\\c\\<$word\\>");
 
-      &VIM::Msg (sprintf ("`%s' was found in %d files", $word, scalar (@$files)));
-
+      if (@$files > $max)
+        {
+          &VIM::Msg (sprintf ("`%s' was found in %d files; files %d to %d shown%s", $word, scalar (@$files),
+                              $rank + 1, $last + 1, ($last < $#$files ? '; <TAB> on <<<< >>>> for the next ones' : '')));
+        }
+      else
+        {
+          &VIM::Msg (sprintf ("`%s' was found in %d files", $word, scalar (@$files)));
+        }
 
     }
 
@@ -267,7 +283,7 @@ sub do_find
     {
       my ($word, $rank) = ($self->{word}, $self->{rank});
       $rank += $edtr->{maxfind};
-      return $edtr->find (word => $word, rank => $rank, hist => $hist);
+      return $edtr->find (word => $word, rank => $rank, hist => $hist, repo => $self->{repo});
     }
 
   $self->vimgit::source::do_find (%args);
