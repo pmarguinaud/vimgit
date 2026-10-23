@@ -5,37 +5,80 @@ use Data::Dumper;
 
 my $GIT = '/bin/git';
 
+sub run
+{
+
+# run a git command in repository $top; no shell involved
+
+  my ($top, @cmd) = @_;
+
+  open (my $fh, '-|', $GIT, '--no-pager', -C => $top, @cmd)
+    or die ("Cannot run git: $!");
+  local $/ = undef;
+  my $out = <$fh>;
+  close ($fh);
+
+  return defined ($out) ? $out : '';
+}
+
 sub getHashList
 {
-  my $class = shift;
-  my @hash = split (m/\n/o, `$GIT --no-pager log --pretty=%H -10`);
+  my ($class, %args) = @_;
+  my @hash = split (m/\n/o, &run ($args{top}, qw (log --pretty=%H -10)));
   return \@hash;
 }
 
 sub getTopDirectory
 {
-  my $class = shift;
-  chomp (my $top = `$GIT rev-parse --show-toplevel`);
-  return $top;
+
+# top of the repository containing $args{dir}; empty if not in a git repository
+
+  my ($class, %args) = @_;
+
+# git complains on stderr outside a repository
+  open (my $err, '>&', \*STDERR);
+  open (STDERR, '>', '/dev/null');
+  my $ok = open (my $fh, '-|', $GIT, -C => $args{dir}, qw (rev-parse --show-toplevel));
+  open (STDERR, '>&', $err);
+  $ok or die ("Cannot run git: $!");
+
+  chomp (my $top = <$fh> || '');
+  close ($fh);
+  return $? ? '' : $top;
 }
 
-sub getStatus
+sub getGitDirectory
 {
-  my $class = shift;
-  my @m = map { chomp; split (m/\s+/o) } split (m/\n/o, `$GIT status --porcelain=v1`);
-  print &Dumper (\@m);
-  die;
+
+# absolute path of the .git directory (shared by all worktrees)
+
+  my ($class, %args) = @_;
+  chomp (my $dir = &run ($args{top}, qw (rev-parse --path-format=absolute --git-common-dir)));
+  return $dir;
+}
+
+sub getFiles
+{
+
+# tracked files, plus untracked files not ignored; paths relative to the top
+
+  my ($class, %args) = @_;
+  my @f = split (m/\0/o, &run ($args{top}, qw (ls-files -z --cached --others --exclude-standard)));
+  return \@f;
 }
 
 sub getDiff
 {
+
+# files changed since commit $args{hash}, untracked files included; paths relative to the top
+
   my ($class, %args) = @_;
 
   my %m;
 
 # no renames : a single path per entry; -z : status and path separated by NUL
 
-  my @m = split (m/\0/o, `$GIT diff --name-status --no-renames -z $args{hash}`);
+  my @m = split (m/\0/o, &run ($args{top}, qw (diff --name-status --no-renames -z), $args{hash}));
 
   while (my ($m, $f) = splice (@m, 0, 2))
     {
@@ -54,9 +97,8 @@ sub getDiff
         }
     }
 
-  for (split (m/\n/o, `$GIT ls-files --others --exclude-standard`))
+  for (split (m/\0/o, &run ($args{top}, qw (ls-files -z --others --exclude-standard))))
     {
-      chomp;
       $m{$_} = '+';
     }
 

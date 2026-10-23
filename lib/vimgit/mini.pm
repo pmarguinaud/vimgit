@@ -4,7 +4,6 @@ use strict;
 use DB_File;
 use FileHandle;
 use Fcntl qw (O_RDWR O_CREAT);
-use File::Find qw ();
 use File::Basename;
 use Data::Dumper;
 use File::Path;
@@ -23,6 +22,11 @@ sub new
                  maxfind => 200,
                  @_ 
                }, $class;
+
+# REPO : top of the git repository; indexes are kept in its .git directory
+
+  $self->{IDX} ||= 'vimgit::git'->getGitDirectory (top => $self->{REPO}) . '/vimgit'
+    if ($self->{REPO});
 
   return $self;
 }
@@ -97,32 +101,32 @@ sub idx
 
   my $fhlog = $self->{fhlog};
 
-  my $hashlist = 'vimgit::git'->getHashList ();
-  die unless (scalar (@$hashlist));
+  my $hashlist = 'vimgit::git'->getHashList (top => $self->{REPO});
+  die ("No commit in $self->{REPO}") unless (scalar (@$hashlist));
 
   my ($hash) = @$hashlist;
 
-  unless ((-f "$self->{TOP}/$hash/windex.db") && (-f "$self->{TOP}/$hash/sindex.db"))
+  my $dir = "$self->{IDX}/$hash";
+
+  unless ((-f "$dir/windex.db") && (-f "$dir/sindex.db"))
     {
-      &mkpath ("$self->{TOP}/$hash");
+      &mkpath ($dir);
       my %windex;
-      my %findex;
       my %sindex;
 
-      mkdir ($self->{TOP});
+# files listed by git, relative to the top of the repository (the current directory)
 
-      my $follow = 0;
-      &File::Find::find ({wanted => sub { &wanted_windex_ (windex => \%windex, findex => \%findex, 
-                                                           sindex => \%sindex, fhlog  => $fhlog, 
-							   file => $File::Find::name,
-                                                           callback => $callback) }, 
-                         no_chdir => 1, follow => $follow}, '.');
+      for my $f (@{ 'vimgit::git'->getFiles (top => $self->{REPO}) })
+        {
+          &wanted_windex_ (windex => \%windex, sindex => \%sindex, fhlog  => $fhlog, 
+                           file => $f, callback => $callback);
+        }
   
-      tie (my %WINDEX,  'DB_File', "$self->{TOP}/$hash/windex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
+      tie (my %WINDEX,  'DB_File', "$dir/windex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
       &cidx (\%windex, \%WINDEX);
       untie (%WINDEX);
 
-      tie (my %SINDEX,  'DB_File', "$self->{TOP}/$hash/sindex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
+      tie (my %SINDEX,  'DB_File', "$dir/sindex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
       &cidx (\%sindex, \%SINDEX);
       untie (%SINDEX);
 

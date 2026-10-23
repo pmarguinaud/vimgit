@@ -34,27 +34,32 @@ sub setlog
     }
 }
 
+sub getindexhash
+{
+
+# most recent of the last commits having an index
+
+  my $self = shift;
+
+  my $hashlist = 'vimgit::git'->getHashList (top => $self->{REPO});
+
+  for my $hash (@$hashlist)
+    {
+      return $hash if (-f "$self->{IDX}/$hash/sindex.db");
+    }
+
+  die ("No index was found; run vimgit -i");
+}
+
 sub getsindex
 {
 # get file location index; local index is built on the fly
 
   my ($self, @args) = @_;
 
-  my $hashlist = 'vimgit::git'->getHashList ();
-  
-  my $hash = (sub
-  {
-    my $hash;
-    for $hash (@$hashlist)
-      {
-        my $f = "$self->{TOP}/$hash/sindex.db";
-        return $hash if (-f $f);
-      }
-  })->();
+  my $hash = $self->getindexhash ();
 
-  $hash or die ("No index was found");
-
-  my $m = 'vimgit::git'->getDiff (hash => $hash);
+  my $m = 'vimgit::git'->getDiff (top => $self->{REPO}, hash => $hash);
 
   my %args = map { ($_, 1) } @args;
 
@@ -84,7 +89,7 @@ sub getsindex
       unless ($self->{SINDEX})
         {
           my %SINDEX;
-          tie (%SINDEX,  'DB_File', "$self->{TOP}/$hash/sindex.db", O_RDONLY);
+          tie (%SINDEX,  'DB_File', "$self->{IDX}/$hash/sindex.db", O_RDONLY);
           $self->{SINDEX} = \%SINDEX;
         }
       push @i, $self->{SINDEX};
@@ -97,27 +102,15 @@ sub getwindex
 {
   my ($self, @args) = @_;
 
-  my $hashlist = 'vimgit::git'->getHashList ();
-  
-  my $hash = (sub
-  {
-    my $hash;
-    for $hash (@$hashlist)
-      {
-        my $f = "$self->{TOP}/$hash/sindex.db";
-        return $hash if (-f $f);
-      }
-  })->();
+  my $hash = $self->getindexhash ();
 
-  $hash or die ("No index was found");
-
-  my $m = 'vimgit::git'->getDiff (hash => $hash);
+  my $m = 'vimgit::git'->getDiff (top => $self->{REPO}, hash => $hash);
 
   my %WINDEX;
   my %windex;
   my %findex;
 
-  tie (%WINDEX,  'DB_File', "$self->{TOP}/$hash/windex.db", O_RDONLY);
+  tie (%WINDEX,  'DB_File', "$self->{IDX}/$hash/windex.db", O_RDONLY);
   
   {
     my %b;
