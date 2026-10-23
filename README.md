@@ -9,7 +9,8 @@ bundles, and also indexes C and C++.
 ## Requirements
 
 - vim compiled with Perl (`vim --version | grep +perl`);
-- git, as `/bin/git`;
+- git: `/bin/git`, or the one given by the environment variable `GITVIMGIT`
+  (for example `export GITVIMGIT=$HOME/install/git/bin/git`);
 - Perl modules `DB_File` and `local::lib`; for the transforms (`:T`), also
   `XML::LibXML`, `XML::XPath`, `List::MoreUtils`, and
   [fxtran](https://github.com/pmarguinaud/fxtran) with its Perl module.

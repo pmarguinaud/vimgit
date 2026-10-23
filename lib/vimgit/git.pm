@@ -3,7 +3,14 @@ package vimgit::git;
 use strict;
 use Data::Dumper;
 
-my $GIT = '/bin/git';
+# git to run : $GITVIMGIT, or /bin/git
+
+my $GIT = $ENV{GITVIMGIT} || '/bin/git';
+
+sub path
+{
+  return $GIT;
+}
 
 sub run
 {

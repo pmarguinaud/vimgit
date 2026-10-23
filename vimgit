@@ -41,7 +41,8 @@ otherwise in the current git repository. .vimgit/config lists the
 repositories (repo <path>), files not to index (exclude <repo> <pattern>)
 and the names of files to index (index <glob> ...). .vimgitignore files in
 repositories also exclude files. Indexes are built by vimgit -i (missing
-ones) or vimgit -I (all, again). See README.md in the vimgit directory.
+ones) or vimgit -I (all, again). vimgit runs /bin/git, or $GITVIMGIT if set.
+See README.md in the vimgit directory.
 EOF
 
 use strict;
@@ -91,6 +92,12 @@ my @opts = qw (d v i I g b w h x);
 my %opts = map { ($_, 0), } @opts;
 $opts{j} = 4;
 &GetOptions ((map { ($_, \$opts{$_}) } @opts), 'j=i' => \$opts{j});
+
+unless (-x 'vimgit::git'->path ())
+  {
+    printf STDERR ("vimgit: cannot run git as %s; set GITVIMGIT to the path of git\n", 'vimgit::git'->path ());
+    exit (1);
+  }
 
 # the backtrace may be read from files given on the command line : before changing directory
 
