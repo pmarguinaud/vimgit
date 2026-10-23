@@ -58,12 +58,12 @@ sub do_find
           return $edtr->find (word => $word, defn => 1, regex => qr/(?:subroutine|interface)\s*$word\b/i, hist => 1, lang => 'fortran');
 
         }
-      elsif (($linea =~ m/^\s*type\s*\(\s*$/io) && ($lineb =~ m/^\s*\)/io))
+      elsif (($linea =~ m/^\s*(?:type|class)\s*\(\s*$/io) && ($lineb =~ m/^\s*\)/io))
         {
-      
-# search for type definition
 
-          return $edtr->find (word => $word, defn => 1, regex => qr/(?:type)\s*$word\b/i, hist => 1, lang => 'fortran');
+# search for type definition : TYPE X, TYPE :: X, TYPE, EXTENDS(Y), ... :: X
+
+          return $edtr->find (word => $word, defn => 1, regex => qr/^\s*type\b(?:\s*,[^:]*::|\s*::)?\s*$word\b/i, hist => 1, lang => 'fortran');
 
         }
 
