@@ -14,6 +14,7 @@ use File::Spec;
 use FileHandle;
 
 use vimgit::git;
+use vimgit::lang;
 use vimgit::repo;
 
 sub findroot
@@ -70,6 +71,7 @@ sub readconfig
   my $fh = 'FileHandle'->new ("<$config") or die ("Cannot read $config");
 
   my %seen; # top -> mount
+  my (@exclude, @index);
 
   while (my $line = <$fh>)
     {
@@ -103,12 +105,39 @@ sub readconfig
               push @{ $self->{repos} }, 'vimgit::repo'->new (top => &Cwd::abs_path ($top), mount => $mount);
             }
         }
+      elsif (($key eq 'exclude') && (@args == 2))
+        {
+          push @exclude, [ @args ];
+        }
+      elsif (($key eq 'index') && (@args >= 1))
+        {
+          push @index, @args;
+        }
       else
         {
           chomp ($line);
           $self->warning (".vimgit/config: cannot understand `$line'");
         }
     }
+
+# exclude <repo> <pattern> : gitignore pattern, relative to the top of the repository
+
+  for (@exclude)
+    {
+      my ($mount, $pattern) = @$_;
+      if (my $repo = $self->repo ('File::Spec'->canonpath ($mount)))
+        {
+          push @{ $repo->{exclude} }, $pattern;
+        }
+      else
+        {
+          $self->warning (".vimgit/config: exclude $mount $pattern: $mount is not a repository of the workspace");
+        }
+    }
+
+# index <glob> ... : names of the files to index, instead of the default list
+
+  'vimgit::lang'->setindexed (@index) if (@index);
 
   $self->warning (".vimgit/config lists no repository") unless (@{ $self->{repos} });
 }
@@ -150,9 +179,17 @@ sub discover
   my $fh = 'FileHandle'->new (">$dir/.vimgit/config") or die ("Cannot write $dir/.vimgit/config");
 
   $fh->print (<< 'EOF');
-# vimgit workspace: the git repositories searched by vimgit, one per line
-# (repo <path>), in the order used for search results. Written by vimgit;
-# edit it: reorder, remove repositories. Repositories not listed are ignored.
+# vimgit workspace, written by vimgit; edit it.
+#
+# repo <path>              a git repository to search; results follow the order
+#                          of these lines; repositories not listed are ignored
+# exclude <repo> <pattern> files of <repo> not to index (gitignore pattern,
+#                          relative to the top of <repo>), e.g. exclude fiat tests/**
+# index <glob> ...         names of the files to index, any case, instead of
+#                          *.f90 *.f *.c *.cc *.cpp *.h *.hpp
+#
+# A .vimgitignore file (gitignore syntax) in any directory of a repository also
+# excludes files. After changing exclusions or index, run vimgit -I.
 
 EOF
   $fh->print ("repo $_\n") for (@mount);

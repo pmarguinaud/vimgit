@@ -56,6 +56,19 @@ sub relpath
   return $f =~ m,^\Q$self->{mount}\E/(.*)$, ? $1 : undef;
 }
 
+sub excluded
+{
+
+# files excluded by .vimgitignore files and exclude lines of the config :
+# among the files of $args{files}, or among all the files; returns { path => 1 }
+
+  my ($self, %args) = @_;
+
+  return 'vimgit::git'->getExcluded (top => $self->{top}, patterns => $self->{exclude},
+                                     ($args{files} ? (files => $args{files})
+                                                   : (untracked => 'vimgit::git'->getUntracked (top => $self->{top}))));
+}
+
 sub indexhash
 {
 
@@ -97,9 +110,11 @@ sub build
   my %windex;
   my %sindex;
 
-# files listed by git, relative to the top of the repository
+# files listed by git, relative to the top of the repository, except excluded files
 
-  for my $f (@{ 'vimgit::git'->getFiles (top => $self->{top}) })
+  my $x = $self->excluded ();
+
+  for my $f (grep { ! $x->{$_} } @{ 'vimgit::git'->getFiles (top => $self->{top}) })
     {
       &vimgit::wanted_windex_ (windex => \%windex, sindex => \%sindex, fhlog  => $fhlog,
                                root => $self->{top}, file => $f);
@@ -176,10 +191,14 @@ sub cache
 
   my $m = 'vimgit::git'->getDiff (top => $self->{top}, hash => $hash);
 
+# changed files : excluded ones are not scanned
+
+  my $x = %$m ? $self->excluded (files => [ sort keys (%$m) ]) : {};
+
   for my $f (keys (%$m))
     {
       $c->{findex}{$f} = 1;
-      $self->scan ($f) if (($m->{$f} eq '+') || ($m->{$f} eq 'M'));
+      $self->scan ($f) if ((($m->{$f} eq '+') || ($m->{$f} eq 'M')) && (! $x->{$f}));
     }
 
   return $c;
@@ -226,12 +245,14 @@ sub scan
 sub update
 {
 
-# file $f (repository path) was written; scan it again unless git ignores it
+# file $f (repository path) was written; scan it again unless git ignores it,
+# or it is excluded
 
   my ($self, $f) = @_;
 
   return unless ($self->{cache});
   return if ('vimgit::git'->isIgnored (top => $self->{top}, file => $f));
+  return if ($self->excluded (files => [ $f ])->{$f});
 
   $self->scan ($f);
 }

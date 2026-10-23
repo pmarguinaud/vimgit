@@ -73,8 +73,7 @@ sub wanted_windex_
     }
 
 # fortran & C & C++
-  my $ext = 'vimgit::lang'->indexed ();
-  return unless ($f =~ m/$ext$/);
+  return unless ($f =~ 'vimgit::lang'->indexed ());
 
   $callback && $callback->($f);
 

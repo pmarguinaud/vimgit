@@ -94,6 +94,52 @@ sub getFiles
   return \@f;
 }
 
+sub getExcluded
+{
+
+# files excluded by .vimgitignore files or by the gitignore patterns of $args{patterns} :
+# among the files of $args{files} if given, otherwise among the tracked files and the files 
+# of $args{untracked}; returns { path => 1 }. Both rule sets are applied separately, so that 
+# a pattern excludes a file whatever a .vimgitignore says.
+
+  my ($class, %args) = @_;
+
+  my @rules = ([ '--exclude-per-directory=.vimgitignore' ]);
+  push @rules, [ map { ('-x', $_) } @{ $args{patterns} } ]
+    if (@{ $args{patterns} || [] });
+
+  my @named = @{ $args{files} || $args{untracked} || [] };
+  my @which = $args{files} ? qw (-c -o) : qw (-o);
+
+  my %x;
+
+  for my $rule (@rules)
+    {
+      $x{$_} = 1 for ($args{files} ? () : split (m/\0/o, &run ($args{top}, qw (ls-files -z -c -i), @$rule)));
+
+# untracked files are named, so that git does not walk ignored directories
+
+      for (my $i = 0; $i < @named; $i += 500)
+        {
+          my $j = $i + 499; $j = $#named if ($j > $#named);
+          $x{$_} = 1 for (split (m/\0/o, &run ($args{top}, qw (ls-files -z -i), @which, @$rule,
+                                               '--', @named[$i .. $j])));
+        }
+    }
+
+  return \%x;
+}
+
+sub getUntracked
+{
+
+# untracked files not ignored; paths relative to the top
+
+  my ($class, %args) = @_;
+  my @f = split (m/\0/o, &run ($args{top}, qw (ls-files -z --others --exclude-standard)));
+  return \@f;
+}
+
 sub getDiff
 {
 
