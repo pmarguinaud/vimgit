@@ -21,6 +21,114 @@ sub run
   return defined ($out) ? $out : '';
 }
 
+sub runParallel
+{
+
+# run git commands, at most $max at a time; each command is [ $dir, @args ];
+# returns their outputs, in the same order. Outputs go to temporary files, so that
+# a command never waits for its output to be read.
+
+  my ($class, %args) = @_;
+
+  use File::Temp;
+  use POSIX qw ();
+
+  my @cmd = @{ $args{commands} };
+  my $max = $args{max} || 16;
+
+  my @tmp = map { 'File::Temp'->new () } @cmd;
+  my %running;
+
+  for my $i (0 .. $#cmd)
+    {
+      if (keys (%running) >= $max)
+        {
+          my $pid = waitpid (-1, 0);
+          delete $running{$pid};
+        }
+
+      my ($dir, @arg) = @{ $cmd[$i] };
+
+      my $pid = fork ();
+      defined ($pid) or die ("Cannot fork: $!");
+
+      if ($pid == 0)
+        {
+# child : no cleanup of the parent (vim) must run here
+          open (STDOUT, '>', $tmp[$i]->filename ());
+          open (STDERR, '>', '/dev/null');
+          { exec ($GIT, '--no-pager', -C => $dir, @arg) };
+          &POSIX::_exit (127);
+        }
+
+      $running{$pid} = 1;
+    }
+
+  for my $pid (keys (%running))
+    {
+      waitpid ($pid, 0);
+    }
+
+  return map { local $/ = undef; my $fh = $_; seek ($fh, 0, 0); my $out = <$fh>; defined ($out) ? $out : '' } @tmp;
+}
+
+sub grepFiles
+{
+
+# search $args{word} (whole word, any case) with $args{context} lines around each match,
+# in the files of $args{sets} : [ [ $top, $prefix, [ paths relative to $top ] ], ... ];
+# git runs in $top (it skips paths crossing a symbolic link), several processes in parallel.
+# Returns { "$prefix/$path" => [ [ line number, text ], ... ] } ($path alone if $prefix is '.');
+# a line not following the previous one starts a new hunk.
+
+  my ($class, %args) = @_;
+
+  my $context = $args{context} || 0;
+
+  my (@cmd, @prefix);
+
+  for my $set (@{ $args{sets} })
+    {
+      my ($top, $prefix, $files) = @$set;
+      for (my $i = 0; $i < @$files; $i += 500)
+        {
+          my $j = $i + 499; $j = $#$files if ($j > $#$files);
+          push @cmd, [ $top, qw (grep --no-index -I -n -i -w --null), -C => $context,
+                       -e => $args{word}, '--', @{$files}[$i .. $j] ];
+          push @prefix, $prefix;
+        }
+    }
+
+  my %hit;
+
+  my @out = $class->runParallel (commands => \@cmd);
+
+  for my $k (0 .. $#out)
+    {
+      for my $line (split (m/\n/o, $out[$k]))
+        {
+          next if ($line eq '--');
+          my ($f, $n, $text) = split (m/\0/o, $line, 3);
+          next unless (defined ($text));
+          $f = "$prefix[$k]/$f" unless ($prefix[$k] eq '.');
+          push @{ $hit{$f} }, [ $n, "$text\n" ];
+        }
+    }
+
+  return \%hit;
+}
+
+sub grepRepository
+{
+
+# files of repository $args{top} (tracked, or untracked and not ignored) containing
+# $args{word} (whole word, any case); paths relative to the top
+
+  my ($class, %args) = @_;
+  my @f = split (m/\0/o, &run ($args{top}, qw (grep --untracked -I -l -i -w -z), -e => $args{word}));
+  return \@f;
+}
+
 sub getHashList
 {
   my ($class, %args) = @_;

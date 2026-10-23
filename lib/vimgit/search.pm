@@ -9,6 +9,11 @@ use Data::Dumper;
 
 use base qw (vimgit::file);
 
+# above $GITGREP files, results are produced by git; $WIDTH lines around each match
+
+our $GITGREP = 200;
+our $WIDTH = 2;
+
 sub new
 {
   my $class = shift;
@@ -279,6 +284,46 @@ sub pretty_grep
 
   my (@TEXT, @fl1);
 
+# many files : git reads them, several processes in parallel
+
+  if ((@{ $args{files} } > $GITGREP) && (! $args{nogit}))
+    {
+      my $sets = $edtr->{workspace}->sets (@{ $args{files} });
+
+      if ($regex)
+        {
+
+# keep the files where a line matches the regex, then format them below
+
+          my $hit = 'vimgit::git'->grepFiles (sets => $sets, word => $word, context => 0);
+          my @f = grep { my $f = $_; grep { $_->[1] =~ $regex } @{ $hit->{$f} || [] } } @{ $args{files} };
+          return $class->pretty_grep (%args, files => \@f, nogit => 1);
+        }
+
+      my $hit = 'vimgit::git'->grepFiles (sets => $sets, word => $word, context => $WIDTH);
+
+      for my $f (@{ $args{files} })
+        {
+          my $h = $hit->{$f} or next;
+
+          my $TEXT = "\n$f\n\n";
+          my $prev;
+
+          for (@$h)
+            {
+              my ($n, $text) = @$_;
+              $TEXT .= "...\n" if (defined ($prev) && ($n > $prev + 1));
+              $TEXT .= sprintf ("%6d | %s", $n, $text);
+              $prev = $n;
+            }
+
+          push @TEXT, $TEXT;
+          push @fl1, [ $f, $h->[0][0] ];
+        }
+
+      return (\@TEXT, \@fl1);
+    }
+
   for my $f (@{ $args{files} })
     {
       next unless (my $fhF = 'FileHandle'->new ("<$f"));
@@ -286,7 +331,7 @@ sub pretty_grep
       $fhF->close ();
   
 # number of lines before/after match
-      my $width = 2;
+      my $width = $WIDTH;
  
 # have we printed something for this file ?
       my $pr = 0;

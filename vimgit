@@ -50,7 +50,8 @@ $SIG{__DIE__} = \&bt;
 
 my @opts = qw (d v i I g b w h x);
 my %opts = map { ($_, 0), } @opts;
-&GetOptions (map { ($_, \$opts{$_}) } @opts);
+$opts{j} = 4;
+&GetOptions ((map { ($_, \$opts{$_}) } @opts), 'j=i' => \$opts{j});
 
 # the backtrace may be read from files given on the command line : before changing directory
 
@@ -148,10 +149,48 @@ if ($opts{i} || $opts{I})
           }
       }
 
+# one process per repository, -j at a time; -i skips the repositories already indexed
+
+    @repo = grep { ! $_->uptodate () } @repo unless ($opts{I});
+
+    print "vimgit: indexes are up to date\n" unless (@repo);
+
+    $| = 1;
+
+    my (%running, @failed);
+
+    my $wait = sub
+    {
+      my $pid = waitpid (-1, 0);
+      my $mount = delete $running{$pid};
+      push @failed, $mount if ($?);
+    };
+
     for my $repo (@repo)
       {
-        print "vimgit: indexing $repo->{mount}\n";
-        $repo->build (force => $opts{I}, fhlog => ($opts{v} ? \*STDOUT : undef));
+        $wait->() while (keys (%running) >= ($opts{j} > 0 ? $opts{j} : 1));
+
+        my $pid = fork ();
+        defined ($pid) or die ("Cannot fork: $!");
+
+        if ($pid == 0)
+          {
+            my $t = time ();
+            print "vimgit: indexing $repo->{mount}\n";
+            $repo->build (force => $opts{I}, fhlog => ($opts{v} ? \*STDOUT : undef));
+            printf ("vimgit: %s done (%d s)\n", $repo->{mount}, time () - $t);
+            exit (0);
+          }
+
+        $running{$pid} = $repo->{mount};
+      }
+
+    $wait->() while (%running);
+
+    if (@failed)
+      {
+        print STDERR "vimgit: indexing failed for @failed\n";
+        exit (1);
       }
 
     exit (0);

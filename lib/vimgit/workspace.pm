@@ -233,6 +233,28 @@ sub repo_of
   return ();
 }
 
+sub sets
+{
+
+# workspace paths grouped by repository : [ [ top, mount, [ repository paths ] ], ... ]
+
+  my ($self, @f) = @_;
+
+  my (%set, @set);
+
+  for my $f (@f)
+    {
+      my ($repo, $rel) = $self->repo_of ($f) or next;
+      unless ($set{$repo->{mount}})
+        {
+          push @set, ($set{$repo->{mount}} = [ $repo->{top}, $repo->{mount}, [] ]);
+        }
+      push @{ $set{$repo->{mount}}[2] }, $rel;
+    }
+
+  return \@set;
+}
+
 sub noindex
 {
 

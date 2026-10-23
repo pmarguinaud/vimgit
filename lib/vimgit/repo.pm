@@ -13,6 +13,7 @@ use File::Path;
 use FileHandle;
 
 use vimgit::git;
+use vimgit::lang;
 use vimgit::mini;
 
 sub new
@@ -86,6 +87,16 @@ sub indexhash
   return undef;
 }
 
+sub uptodate
+{
+
+# true if the current commit has an index
+
+  my $self = shift;
+  my ($hash) = @{ 'vimgit::git'->getHashList (top => $self->{top}) };
+  return $hash && (-f "$self->{IDX}/$hash/windex.db") && (-f "$self->{IDX}/$hash/sindex.db");
+}
+
 sub build
 {
 
@@ -127,6 +138,26 @@ sub build
   tie (my %SINDEX,  'DB_File', "$dir/sindex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
   &vimgit::cidx (\%sindex, \%SINDEX);
   untie (%SINDEX);
+
+  $self->prune ();
+}
+
+sub prune
+{
+
+# keep the $keep most recent indexes
+
+  my ($self, $keep) = @_;
+
+  $keep ||= 3;
+
+  opendir (my $dh, $self->{IDX}) or return;
+  my @hash = grep { m/^[0-9a-f]{40}$/o && -d "$self->{IDX}/$_" } readdir ($dh);
+  closedir ($dh);
+
+  @hash = sort { (stat ("$self->{IDX}/$b"))[9] <=> (stat ("$self->{IDX}/$a"))[9] } @hash;
+
+  &rmtree ("$self->{IDX}/$_") for (@hash[$keep .. $#hash]);
 }
 
 sub head
@@ -208,6 +239,30 @@ sub drop
 {
   my $self = shift;
   delete $self->{cache};
+  delete $self->{noindex};
+}
+
+sub noindex
+{
+
+# for a repository without an index : its files (tracked, or untracked and not ignored)
+# except excluded files, listed once per session, again when HEAD moves
+
+  my $self = shift;
+
+  my $head = $self->head ();
+
+  delete $self->{noindex}
+    if ($self->{noindex} && ($self->{noindex}{head} ne $head));
+
+  unless ($self->{noindex})
+    {
+      my $x = $self->excluded ();
+      $self->{noindex} = { head => $head, excluded => $x,
+                           files => [ grep { ! $x->{$_} } @{ 'vimgit::git'->getFiles (top => $self->{top}) } ] };
+    }
+
+  return $self->{noindex};
 }
 
 sub scan
@@ -260,11 +315,20 @@ sub update
 sub files_for_word
 {
 
-# workspace paths of the files containing $word, sorted; undef if there is no index
+# workspace paths of the files containing $word, sorted; without an index, git searches
+# the files
 
   my ($self, $word) = @_;
 
-  my $c = $self->cache () or return undef;
+  my $c = $self->cache ();
+
+  unless ($c)
+    {
+      my $n = $self->noindex ();
+      my $ext = 'vimgit::lang'->indexed ();
+      return [ map { $self->path ($_) } sort grep { (! $n->{excluded}{$_}) && ($_ =~ $ext) }
+               @{ 'vimgit::git'->grepRepository (top => $self->{top}, word => $word) } ];
+    }
 
   my %f = map { ($_, 1) }
           (keys (%{ $c->{windex}{$word} || {} }),
@@ -276,11 +340,16 @@ sub files_for_word
 sub paths_for_name
 {
 
-# workspace paths of the files named $name; undef if there is no index
+# workspace paths of the files named $name; without an index, from the list of files
 
   my ($self, $name) = @_;
 
-  my $c = $self->cache () or return undef;
+  my $c = $self->cache ();
+
+  unless ($c)
+    {
+      return [ map { $self->path ($_) } sort grep { &basename ($_) eq $name } @{ $self->noindex ()->{files} } ];
+    }
 
   my %f = map { ($_, 1) }
           (keys (%{ $c->{sindex}{$name} || {} }),
