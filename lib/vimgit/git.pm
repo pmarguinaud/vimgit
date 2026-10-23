@@ -185,8 +185,11 @@ sub getGitDirectory
 # absolute path of the .git directory (shared by all worktrees)
 
   my ($class, %args) = @_;
-  chomp (my $dir = &run ($args{top}, qw (rev-parse --path-format=absolute --git-common-dir)));
-  return $dir;
+
+# git may print a path relative to $top (--path-format=absolute needs git 2.31)
+  use File::Spec;
+  chomp (my $dir = &run ($args{top}, qw (rev-parse --git-common-dir)));
+  return $dir eq '' ? '' : 'File::Spec'->rel2abs ($dir, $args{top});
 }
 
 sub getWorktreeGitDirectory
