@@ -147,14 +147,11 @@ sub edit
 
 # prepare file list
 
-  for my $F (@{ $args{files} })
+  for my $F0 (@{ $args{files} })
     {
+      my $F = $F0;
+
       my ($line, $column) = ('', '');
-
-      my $Q = 'File::Spec'->canonpath (&dirname ($F));
-      $Q = $Q eq '.' ? '' : $Q;
-
-      $F = &basename ($F);
 
       if ($F =~ s/:(\d+)(?:(?:\.|:)(\d+))?$//go)
         {
@@ -164,27 +161,43 @@ sub edit
         {
           ($line) = ($1);
         }
-  
-      my $P = $sindex->{$F} || $SINDEX->{$F};
 
-      unless ($P)
+# a path to an existing file is used as is; otherwise look up the basename in the indexes
+
+      my @P;
+
+      if ((&basename ($F) ne $F) && (-f $F))
+        {
+          @P = ('File::Spec'->canonpath ($F));
+        }
+      else
+        {
+          $F = &basename ($F);
+          my %seen;
+          @P = grep { (! $seen{$_}++) && (-f $_) }
+               map { split (m/\s+/o, $_ || '') } ($sindex->{$F}, $SINDEX->{$F});
+        }
+
+      unless (@P)
         {
           &VIM::DoCommand ("echohl WarningMsg | echo \"`$F' was not found; skip...\" | echohl None");
           next;
         }
-      
-      if (-f $P)
-        {
-          push @HlF, [ $P, $line, $column, $F ];
-        }
-      
+
+# several files with the same name : let the user choose
+
+      my $P = @P > 1 ? $self->pick (@P) : $P[0];
+
+      push @HlF, [ $P, $line, $column ]
+        if ($P);
+
     }
 
 # open files; vertical split
 
   for my $i (reverse (0 .. $#HlF))
     {
-      my ($H, $line, $column, $F) = @{ $HlF[$i] };
+      my ($H, $line, $column) = @{ $HlF[$i] };
 
       my $f = 'vimgit::source'->new (file => $H);
 
@@ -192,7 +205,7 @@ sub edit
 
       if ($args{hist})
         {
-          my $Flc = $F;
+          my $Flc = $H;
           $Flc .= ":$line" if ($line);
           $Flc .= ".$column" if ($column);
           $self->{history}->push ($self->getcurwin (), 'edit', %args, files => [ $Flc ]);
@@ -202,7 +215,22 @@ sub edit
         if ($i > 0);
     }
 
-  
+
+}
+
+sub pick
+{
+
+# ask the user to choose a file among several paths
+
+  my ($self, @P) = @_;
+
+  my @list = ('Select file:', map { sprintf ('%d. %s', $_ + 1, $P[$_]) } (0 .. $#P));
+  my $list = join (', ', map { (my $s = $_) =~ s/'/''/go; "'$s'" } @list);
+
+  my ($ok, $i) = &VIM::Eval ("inputlist ([$list])");
+
+  return ($ok && ($i >= 1) && ($i <= @P)) ? $P[$i-1] : undef;
 }
 
 sub EDIT

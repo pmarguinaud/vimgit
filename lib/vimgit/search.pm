@@ -206,7 +206,7 @@ sub create_defn
 
       my ($f, $l) = @{ $fl1->[0] };
 
-      $edtr->edit (files => [ &basename ($f) . ":$l" ], hist => 0);
+      $edtr->edit (files => [ "$f:$l" ], hist => 0);
 
     }
 
@@ -233,8 +233,7 @@ sub do_find
 
 # search file
 
-      my $filename_line = &basename ($line);
-      return $edtr->edit (files => [ $filename_line ], hist => $hist);
+      return $edtr->edit (files => [ $line ], hist => $hist);
     }
 
   if ($line =~ m/^(\s*)(\d+)(\s*)\|/io)
@@ -251,8 +250,7 @@ sub do_find
               $line = $curbuf->Get ($row);
               if ($line =~ m/^(\S+\.F(?:90)?)(?::\d+)?$/io)
                 {
-                  my $filename = &basename ($1);
-                  my $filename_line = "$filename:$ln";
+                  my $filename_line = "$1:$ln";
                   return $edtr->edit (files => [ $filename_line ], hist => $hist);
                 }
               $row--;
