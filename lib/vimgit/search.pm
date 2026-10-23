@@ -35,12 +35,9 @@ sub getfiles
   my $word = $args{word};
   my $edtr = $args{editor};
 
-  my ($WINDEX, $windex, $findex) = $edtr->getwindex ();
+# repositories in config order, files sorted in each
 
-  my %f = map { ($_, 1) }
-          (keys (%{ $windex->{$word} || {} }), 
-           grep ({ ! $findex->{$_} } split (m/\s+/o, $WINDEX->{$word} || '')));
-  my @f = sort keys (%f);
+  my @f = $edtr->{workspace}->files_for_word ($word, repo => $args{repo});
 
   return \@f;
 }
@@ -60,7 +57,7 @@ sub create
   my $curbuf = $edtr->getcurbuf ();
   my $lang   = 'vimgit::lang'->lang ($curbuf->Name ());
 
-  my $files = $class->getfiles (word => $word, editor => $edtr);
+  my $files = $class->getfiles (word => $word, editor => $edtr, repo => $args{repo});
   
 # @f = @f[$rank .. $rank + $self->{maxfind}];
 

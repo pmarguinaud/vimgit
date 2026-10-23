@@ -2,9 +2,6 @@ package vimgit;
 
 use strict;
 
-use DB_File;
-use Fcntl qw (O_RDONLY);
-
 use File::Spec;
 use File::Basename;
 use File::Path;
@@ -34,120 +31,12 @@ sub setlog
     }
 }
 
-sub getindexhash
-{
-
-# most recent of the last commits having an index
-
-  my $self = shift;
-
-  my $hashlist = 'vimgit::git'->getHashList (top => $self->{REPO});
-
-  for my $hash (@$hashlist)
-    {
-      return $hash if (-f "$self->{IDX}/$hash/sindex.db");
-    }
-
-  die ("No index was found; run vimgit -i");
-}
-
-sub cache
-{
-
-# session cache : indexed commit, stored indexes, and files changed since that commit,
-# scanned once; dropped when HEAD moves or on :R, updated when a file is written
-
-  my $self = shift;
-
-  my $head = 'vimgit::git'->getHead (top => $self->{REPO});
-
-  delete $self->{cache}
-    if ($self->{cache} && ($self->{cache}{head} ne $head));
-
-  return $self->{cache} if ($self->{cache});
-
-  my $hash = $self->getindexhash ();
-
-  tie (my %WINDEX, 'DB_File', "$self->{IDX}/$hash/windex.db", O_RDONLY);
-  tie (my %SINDEX, 'DB_File', "$self->{IDX}/$hash/sindex.db", O_RDONLY);
-
-# windex : word -> { file }; sindex : basename -> { file }; 
-# findex : files whose stored entries are obsolete; wordsof : file -> words found in it
-
-  my $c = $self->{cache} = { head => $head, hash => $hash, WINDEX => \%WINDEX, SINDEX => \%SINDEX, 
-                             windex => {}, sindex => {}, findex => {}, wordsof => {} };
-
-  my $m = 'vimgit::git'->getDiff (top => $self->{REPO}, hash => $hash);
-
-  for my $f (keys (%$m))
-    {
-      $c->{findex}{$f} = 1;
-      $self->scan ($f) if (($m->{$f} eq '+') || ($m->{$f} eq 'M'));
-    }
-
-  return $c;
-}
-
-sub scan
-{
-
-# forget what is known about file $f, then scan it again
-
-  my ($self, $f) = @_;
-
-  my $c = $self->{cache};
-
-  for my $w (@{ delete $c->{wordsof}{$f} || [] })
-    {
-      delete $c->{windex}{$w}{$f};
-    }
-  delete $c->{sindex}{&basename ($f)}{$f};
-
-  $c->{findex}{$f} = 1;
-
-  my (%w, %s);
-  &wanted_windex_ (windex => \%w, sindex => \%s, fhlog => $self->{fhlog}, file => $f);
-
-  for my $w (keys (%w))
-    {
-      $c->{windex}{$w}{$f} = 1;
-      push @{ $c->{wordsof}{$f} }, $w;
-    }
-  for my $b (keys (%s))
-    {
-      $c->{sindex}{$b}{$f} = 1;
-    }
-}
-
-sub getsindex
-{
-
-# file location indexes : changed files (basename -> { file }), stored index (basename -> "file file ...")
-
-  my $self = shift;
-  my $c = $self->cache ();
-  return ($c->{sindex}, $c->{SINDEX});
-}
-
-sub getwindex
-{
-
-# word indexes : changed files (word -> { file }), stored index (word -> "file file ..."), 
-# and the files whose stored entries are obsolete
-
-  my $self = shift;
-  my $c = $self->cache ();
-  return ($c->{WINDEX}, $c->{windex}, $c->{findex});
-}
-
 sub edit
 {
 
 # edit a list of files
 
   my ($self, %args) = @_;
-
-  my ($sindex, $SINDEX) = $self->getsindex ();
 
   my @HlF;
 
@@ -180,8 +69,7 @@ sub edit
         {
           $F = &basename ($F);
           my %seen;
-          @P = grep { (! $seen{$_}++) && (-f $_) }
-               (keys (%{ $sindex->{$F} || {} }), split (m/\s+/o, $SINDEX->{$F} || ''));
+          @P = grep { (! $seen{$_}++) && (-f $_) } $self->{workspace}->paths_for_name ($F);
         }
 
       unless (@P)
@@ -334,6 +222,21 @@ sub FIND
 
   eval
     {
+
+# current : search the repository of the current buffer only
+
+      if (delete $args{current})
+        {
+          no warnings;
+          my ($repo) = $self->{workspace}->repo_of ('File::Spec'->abs2rel ($main::curbuf->Name ()));
+          unless ($repo)
+            {
+              &VIM::Msg ('The current buffer is not in a repository of the workspace');
+              return;
+            }
+          $args{repo} = $repo->name ();
+        }
+
       if ($args{new_window})
         {
           &VIM::DoCommand (':split');
@@ -383,7 +286,7 @@ sub find
   my $call  = $args{call};
 
   return 'vimgit::search'->create (editor => $self, word => $word, regex => $regex, 
-                                   rank => $rank, defn => $defn, call => $call);
+                                   rank => $rank, defn => $defn, call => $call, repo => $args{repo});
 }
 
 sub BACK
@@ -438,23 +341,21 @@ sub COMMIT
 sub UPDATE
 {
 
-# a file was written : scan it again, unless it is outside the repository, 
+# a file was written : scan it again, unless it is outside the repositories, 
 # in .vimgit, or ignored by git
 
   my $self = shift;
 
   eval
     {
-      return unless ($self->{cache});
-
       no warnings;
       my $f = 'File::Spec'->abs2rel ($main::curbuf->Name ());
 
-      return if ($f =~ m,^\.\./,o);
       return if ($f =~ m/\.vimgit\b/o);
-      return if ('vimgit::git'->isIgnored (top => $self->{REPO}, file => $f));
 
-      $self->scan ($f);
+      my ($repo, $rel) = $self->{workspace}->repo_of ($f);
+
+      $repo && $repo->update ($rel);
     };
 
   $self->reportbug ($@);
@@ -467,7 +368,7 @@ sub REFRESH
 
   my $self = shift;
 
-  delete $self->{cache};
+  $_->drop () for ($self->{workspace}->repos ());
 
   &VIM::Msg ('vimgit: cache dropped');
 }

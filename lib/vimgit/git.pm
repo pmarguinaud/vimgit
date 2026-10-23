@@ -74,6 +74,16 @@ sub getGitDirectory
   return $dir;
 }
 
+sub getWorktreeGitDirectory
+{
+
+# absolute path of the git directory of this worktree (where HEAD is)
+
+  my ($class, %args) = @_;
+  chomp (my $dir = &run ($args{top}, qw (rev-parse --absolute-git-dir)));
+  return $dir;
+}
+
 sub getFiles
 {
 
