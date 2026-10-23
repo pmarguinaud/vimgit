@@ -358,6 +358,14 @@ sub find
     }
 
 
+# the index holds words only
+
+  unless ($args{word} =~ m/^\w+$/o)
+    {
+      &VIM::Msg ("`$args{word}' is not a word");
+      return;
+    }
+
   if ($args{hist})
     {
       $self->{history}->push ($self->getcurwin (), 'find', %args);
@@ -365,6 +373,7 @@ sub find
 
 
   my $word  = lc ($args{word});
+
   my $regex = $args{regex};
   my $rank  = $args{rank} || 0;
   my $defn  = $args{defn};

@@ -154,9 +154,11 @@ if (@ARGV)
     my $method = 'EDIT';
     $method = 'BT'   if ($opts{b});
 
+    my @arg = map { (my $a = $_) =~ s/([\\'])/\\$1/go; $a } @ARGV;
+
     local $" = "', '";
     $hCOM->print (<< "EOF");
-perl \$::EDITOR->$method ('@ARGV')
+perl \$::EDITOR->$method ('@arg')
 
 EOF
 
