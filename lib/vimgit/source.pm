@@ -73,6 +73,9 @@ sub do_edit
 
 sub path
 {
+
+# path relative to the top of the repository (the current directory)
+
   my ($self, $file) = @_;
 
   if (ref ($self) && (! $file))
@@ -80,13 +83,9 @@ sub path
       $file = $self->{file};
     }
 
-  for ($file)
-    {
-      s,^.*src=/,,o;
-      s,^src/[^/]+/,,o;
-    }
+  use File::Spec;
 
-  return $file;
+  return 'File::Spec'->abs2rel ($file);
 }
 
 sub do_find
