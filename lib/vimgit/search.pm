@@ -228,7 +228,9 @@ sub do_find
   
   my ($line) = $curbuf->Get ($row);
 
-  if ($line =~ m/^\S+\.F(?:90)?(?::\d+)?$/io)
+  my $ext = 'vimgit::lang'->indexed ();
+
+  if ($line =~ m/^\S+$ext(?::\d+)?$/)
     {
 
 # search file
@@ -248,7 +250,7 @@ sub do_find
           while ($row > 0)
             {
               $line = $curbuf->Get ($row);
-              if ($line =~ m/^(\S+\.F(?:90)?)(?::\d+)?$/io)
+              if ($line =~ m/^(\S+$ext)(?::\d+)?$/)
                 {
                   my $filename_line = "$1:$ln";
                   return $edtr->edit (files => [ $filename_line ], hist => $hist);

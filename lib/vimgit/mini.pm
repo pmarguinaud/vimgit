@@ -11,6 +11,7 @@ use File::Path;
 
 use vimgit::history;
 use vimgit::git;
+use vimgit::lang;
 
 sub new
 {
@@ -70,7 +71,8 @@ sub wanted_windex_
     }
 
 # fortran & C & C++
-  return unless ($f =~ m/\.(f90|f|c|cc)$/io);
+  my $ext = 'vimgit::lang'->indexed ();
+  return unless ($f =~ m/$ext$/);
 
   $callback && $callback->($f);
 

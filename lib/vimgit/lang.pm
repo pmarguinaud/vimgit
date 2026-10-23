@@ -19,6 +19,14 @@ sub lang
   return 'unknown';
 }
 
+sub indexed
+{
+
+# regular expression matching the extensions of indexed files
+
+  return qr/\.(?:f90|f|c|cc|cpp|h|hpp)/io;
+}
+
 sub lang2ext
 {
   my ($class, $lang) = @_;
