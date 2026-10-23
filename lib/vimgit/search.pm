@@ -38,8 +38,8 @@ sub getfiles
   my ($WINDEX, $windex, $findex) = $edtr->getwindex ();
 
   my %f = map { ($_, 1) }
-          (split (m/\s+/o, $windex->{$word}), 
-           grep ({ ! $findex->{$_} } split (m/\s+/o, $WINDEX->{$word})));
+          (keys (%{ $windex->{$word} || {} }), 
+           grep ({ ! $findex->{$_} } split (m/\s+/o, $WINDEX->{$word} || '')));
   my @f = sort keys (%f);
 
   return \@f;

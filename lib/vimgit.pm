@@ -51,83 +51,93 @@ sub getindexhash
   die ("No index was found; run vimgit -i");
 }
 
-sub getsindex
+sub cache
 {
-# get file location index; local index is built on the fly
 
-  my ($self, @args) = @_;
+# session cache : indexed commit, stored indexes, and files changed since that commit,
+# scanned once; dropped when HEAD moves or on :R, updated when a file is written
+
+  my $self = shift;
+
+  my $head = 'vimgit::git'->getHead (top => $self->{REPO});
+
+  delete $self->{cache}
+    if ($self->{cache} && ($self->{cache}{head} ne $head));
+
+  return $self->{cache} if ($self->{cache});
 
   my $hash = $self->getindexhash ();
 
+  tie (my %WINDEX, 'DB_File', "$self->{IDX}/$hash/windex.db", O_RDONLY);
+  tie (my %SINDEX, 'DB_File', "$self->{IDX}/$hash/sindex.db", O_RDONLY);
+
+# windex : word -> { file }; sindex : basename -> { file }; 
+# findex : files whose stored entries are obsolete; wordsof : file -> words found in it
+
+  my $c = $self->{cache} = { head => $head, hash => $hash, WINDEX => \%WINDEX, SINDEX => \%SINDEX, 
+                             windex => {}, sindex => {}, findex => {}, wordsof => {} };
+
   my $m = 'vimgit::git'->getDiff (top => $self->{REPO}, hash => $hash);
 
-  my %args = map { ($_, 1) } @args;
-
-  my @i;
-
-  if ($args{sindex})
+  for my $f (keys (%$m))
     {
-      my %s;
-
-      my %sindex;
-
-      while (my ($f, $m) = each (%$m))
-        {
-          if (($m eq '+') || ($m eq 'M'))
-	    {
-              &wanted_windex_ (sindex => \%s, fhlog => $self->{fhlog}, file => $f);
-	    }
-        }
-
-      &cidx (\%s, \%sindex);
-
-      push @i, \%sindex;
+      $c->{findex}{$f} = 1;
+      $self->scan ($f) if (($m->{$f} eq '+') || ($m->{$f} eq 'M'));
     }
 
-  if ($args{SINDEX})
-    {
-      unless ($self->{SINDEX})
-        {
-          my %SINDEX;
-          tie (%SINDEX,  'DB_File', "$self->{IDX}/$hash/sindex.db", O_RDONLY);
-          $self->{SINDEX} = \%SINDEX;
-        }
-      push @i, $self->{SINDEX};
-    }
+  return $c;
+}
 
-  return @i;
+sub scan
+{
+
+# forget what is known about file $f, then scan it again
+
+  my ($self, $f) = @_;
+
+  my $c = $self->{cache};
+
+  for my $w (@{ delete $c->{wordsof}{$f} || [] })
+    {
+      delete $c->{windex}{$w}{$f};
+    }
+  delete $c->{sindex}{&basename ($f)}{$f};
+
+  $c->{findex}{$f} = 1;
+
+  my (%w, %s);
+  &wanted_windex_ (windex => \%w, sindex => \%s, fhlog => $self->{fhlog}, file => $f);
+
+  for my $w (keys (%w))
+    {
+      $c->{windex}{$w}{$f} = 1;
+      push @{ $c->{wordsof}{$f} }, $w;
+    }
+  for my $b (keys (%s))
+    {
+      $c->{sindex}{$b}{$f} = 1;
+    }
+}
+
+sub getsindex
+{
+
+# file location indexes : changed files (basename -> { file }), stored index (basename -> "file file ...")
+
+  my $self = shift;
+  my $c = $self->cache ();
+  return ($c->{sindex}, $c->{SINDEX});
 }
 
 sub getwindex
 {
-  my ($self, @args) = @_;
 
-  my $hash = $self->getindexhash ();
+# word indexes : changed files (word -> { file }), stored index (word -> "file file ..."), 
+# and the files whose stored entries are obsolete
 
-  my $m = 'vimgit::git'->getDiff (top => $self->{REPO}, hash => $hash);
-
-  my %WINDEX;
-  my %windex;
-  my %findex;
-
-  tie (%WINDEX,  'DB_File', "$self->{IDX}/$hash/windex.db", O_RDONLY);
-  
-  {
-    my %b;
-    while (my ($f, $m) = each (%$m))
-      {
-# files changed since the index was built : stored entries are obsolete
-        $findex{$f} = 1;
-
-        if (($m eq '+') || ($m eq 'M'))
-          {
-            &wanted_windex_ (windex => \%b, findex => \%findex, file => $f, fhlog => $self->{fhlog});
-          }
-      }
-    &cidx (\%b, \%windex);
-  }
-
-  return (\%WINDEX, \%windex, \%findex);
+  my $self = shift;
+  my $c = $self->cache ();
+  return ($c->{WINDEX}, $c->{windex}, $c->{findex});
 }
 
 sub edit
@@ -137,7 +147,7 @@ sub edit
 
   my ($self, %args) = @_;
 
-  my ($sindex, $SINDEX) = $self->getsindex (qw (sindex SINDEX));
+  my ($sindex, $SINDEX) = $self->getsindex ();
 
   my @HlF;
 
@@ -171,7 +181,7 @@ sub edit
           $F = &basename ($F);
           my %seen;
           @P = grep { (! $seen{$_}++) && (-f $_) }
-               map { split (m/\s+/o, $_ || '') } ($sindex->{$F}, $SINDEX->{$F});
+               (keys (%{ $sindex->{$F} || {} }), split (m/\s+/o, $SINDEX->{$F} || ''));
         }
 
       unless (@P)
@@ -425,5 +435,41 @@ sub COMMIT
  
 }
 
-1;
+sub UPDATE
+{
 
+# a file was written : scan it again, unless it is outside the repository, 
+# in .vimgit, or ignored by git
+
+  my $self = shift;
+
+  eval
+    {
+      return unless ($self->{cache});
+
+      no warnings;
+      my $f = 'File::Spec'->abs2rel ($main::curbuf->Name ());
+
+      return if ($f =~ m,^\.\./,o);
+      return if ($f =~ m/\.vimgit\b/o);
+      return if ('vimgit::git'->isIgnored (top => $self->{REPO}, file => $f));
+
+      $self->scan ($f);
+    };
+
+  $self->reportbug ($@);
+}
+
+sub REFRESH
+{
+
+# :R; forget everything, files are scanned again at the next search
+
+  my $self = shift;
+
+  delete $self->{cache};
+
+  &VIM::Msg ('vimgit: cache dropped');
+}
+
+1;

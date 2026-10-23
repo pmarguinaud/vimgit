@@ -28,6 +28,23 @@ sub getHashList
   return \@hash;
 }
 
+sub getHead
+{
+  my ($class, %args) = @_;
+  chomp (my $head = &run ($args{top}, qw (rev-parse HEAD)));
+  return $head;
+}
+
+sub isIgnored
+{
+
+# true if git ignores $args{file} (a tracked file is never ignored)
+
+  my ($class, %args) = @_;
+  &run ($args{top}, qw (check-ignore -q), $args{file});
+  return $? == 0;
+}
+
 sub getTopDirectory
 {
 

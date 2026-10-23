@@ -158,6 +158,7 @@ command! -nargs=0 C      :perl $::EDITOR->COMMIT ()
 command! -nargs=1 E      :perl $::EDITOR->EDIT ("<args>")
 command! -nargs=* T      :perl $::EDITOR->TRANSFORM ("<args>")
 command! -nargs=0 H      :perl $::EDITOR->LOGHIST ()
+command! -nargs=0 R      :perl $::EDITOR->REFRESH ()
 map <TAB>                :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 0)<CR>
 map œ                    :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 1)<CR>
 map `                    :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 1)<CR>
@@ -166,6 +167,7 @@ map <S-TAB>              :perl $::EDITOR->FIND (auto => 1, new_window => 1, defn
 map <C-²>                :perl $::EDITOR->FIND (auto => 1, new_window => 1, defn => 1)<CR>
 map <BS>                 :perl $::EDITOR->BACK ()<CR>
 autocmd BufWritePre   *  :perl $::EDITOR->COMMIT ();
+autocmd BufWritePost  *  :perl $::EDITOR->UPDATE ();
 EOF
 
 if ($opts{v})
