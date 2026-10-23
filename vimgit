@@ -2,7 +2,46 @@
 
 
 my $HELP = << 'EOF';
-*vimgit.txt*
+*vimgit.txt*	vim with a word index of git repositories
+
+KEYS						*vimgit-keys*
+
+<TAB>		search the word under the cursor; in a result buffer, open
+		the file or the line under the cursor, or show the next
+		page on the <<<< >>>> line
+<S-TAB>		same, in a new window
+` ² œ		go to the definition of the routine (CALL x, #include
+		"x.intfb.h"), module (USE x) or type (TYPE (x), CLASS (x))
+		under the cursor; on %x, list the lines using component x
+<C-²>		same, in a new window
+<BS>		go back
+
+COMMANDS					*vimgit-commands*
+
+:F word		search a word in all the repositories of the workspace
+:FR word	search a word in the repository of the current buffer
+:E file		open a file: name, path, file:line, file:line.column
+:R		scan again the files changed since the index was built
+		(after changes made outside vim)
+:T align_args	align the declarations of dummy arguments (needs fxtran)
+:T align_use	clean up and align USE statements (needs fxtran)
+:C		make the current file a single link (done before writes)
+:H		write the history of all windows to the log (-v)
+
+RESULTS						*vimgit-results*
+
+Results show 200 files at a time; <TAB> on the <<<< >>>> line at the end
+shows the next ones. When a name matches several files, vimgit asks which
+one to open.
+
+WORKSPACE					*vimgit-workspace*
+
+vimgit works in the directory holding .vimgit/config (looking upward),
+otherwise in the current git repository. .vimgit/config lists the
+repositories (repo <path>), files not to index (exclude <repo> <pattern>)
+and the names of files to index (index <glob> ...). .vimgitignore files in
+repositories also exclude files. Indexes are built by vimgit -i (missing
+ones) or vimgit -I (all, again). See README.md in the vimgit directory.
 EOF
 
 use strict;
