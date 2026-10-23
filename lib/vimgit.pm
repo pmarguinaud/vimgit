@@ -123,6 +123,9 @@ sub getwindex
     my %b;
     while (my ($f, $m) = each (%$m))
       {
+# files changed since the index was built : stored entries are obsolete
+        $findex{$f} = 1;
+
         if (($m eq '+') || ($m eq 'M'))
           {
             &wanted_windex_ (windex => \%b, findex => \%findex, file => $f, fhlog => $self->{fhlog});
