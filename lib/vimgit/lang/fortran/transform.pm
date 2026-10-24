@@ -1,7 +1,6 @@
 package vimgit::lang::fortran::transform;
 
 use strict;
-use FindBin qw ($Bin);
 
 my $fxtran = 'fxtran';
 
@@ -60,6 +59,19 @@ CHECK2:
 
 DONE:
   return 'XML::LibXML'->load_xml (location => $xml);
+}
+
+sub buf_set_text
+{
+  my ($class, %args) = @_;
+  my ($buf, $text) = @args{qw (buffer text)};
+
+# insert the new lines first, then delete the old ones; deleting all lines first
+# would leave an empty line at the end of the buffer
+  my @line = split (m/\n/o, $text);
+  my $n = $buf->Count ();
+  $buf->Append (0, @line);
+  $buf->Delete (scalar (@line) + 1, scalar (@line) + $n);
 }
 
 sub xml_get_row

@@ -158,57 +158,114 @@ sub offset
 
 # Fold statement workhorse
 
+# Split a statement into tokens; a token is a text node, an element with a single text node,
+# or an element which must not be split across lines (literals, variables, arguments, associations)
+
+sub _tokens
+{
+  my ($node, $tokens) = @_;
+
+  for my $c ($node->childNodes ())
+    {
+      if ($c->nodeName eq '#text')
+        {
+          push @$tokens, $c;
+          next;
+        }
+
+      next unless ($c->nodeType == XML_ELEMENT_NODE);
+
+      my @t = &f ('.//text ()', $c);
+      next unless (@t);
+
+      if ((scalar (@t) == 1) || ($c->nodeName =~ m/^(?:literal-E|named-E|associate|arg)$/o))
+        {
+          push @$tokens, $c;
+        }
+      else
+        {
+          &_tokens ($c, $tokens);
+        }
+    }
+}
+
+# A line may be broken before a token, except before blanks, commas and closing parentheses
+
+sub _breakable
+{
+  my $token = shift;
+  return 1 unless ($token->nodeName eq '#text');
+  return $token->data !~ m/^\s*(?:[,\)\]]|$)/o;
+}
+
 sub _fold
 {
-  my ($node, $plen, $indent, $cnt, $len) = @_;
-  
-  my $shift = 0;
+  my ($stmt, $indent, $width) = @_;
 
-  my @n = &f ('.//text ()', $node);
-  if ((scalar (@n) == 1) || ($node->nodeName eq '#text'))
+  my @tok;
+  &_tokens ($stmt, \@tok);
+
+# group tokens into units : a breakable token, followed by the tokens which cannot be separated from it
+  my @unit;
+  for my $i (0 .. $#tok)
     {
-      
-      my $lenc = $$plen;
-
-      $$plen += length ($node->textContent);
-
-      my ($lit) = &f ('./ancestor::f:literal-E', $node);
-      my ($nam) = &f ('./ancestor::f:named-E', $node);
-      my ($ass) = &f ('./ancestor::f:associate', $node);
-      my ($arg) = &f ('./ancestor::f:arg', $node);
-
-      if (($$plen > 100) && (! $lit) && (! $nam) && (! $ass) && (! $arg))
+      if (($i == 0) || &_breakable ($tok[$i]))
         {
-          if ($node->textContent =~ m/^\s*,\s*$/o)
-            { 
-              $lenc = $$plen;
-              $node = $node->nextSibling;
-              $shift = 1;
+          push @unit, [];
+        }
+      push @{ $unit[-1] }, $tok[$i];
+    }
+
+  my (@cnt, @len);
+
+  my $start = $indent;
+  my $len = $indent;
+
+  for my $i (0 .. $#unit)
+    {
+      my $u = $unit[$i];
+      my $w = 0;
+      $w += length ($_->textContent) for (@$u);
+
+# room for the trailing " &" unless this is the last unit
+      my $need = $w + ($i == $#unit ? 0 : 2);
+
+      if (($len > $start) && ($len + $need > $width))
+        {
+          my $tok = $u->[0];
+
+          if ($tok->nodeName eq '#text')
+            {
+              (my $data = $tok->data) =~ s/^\s+//o;
+              $w -= length ($tok->data) - length ($data);
+              $tok->setData ($data);
+            }
+
+          my $p = $tok->parentNode;
+
+# a single blank before the ampersand
+          unless ($unit[$i-1][-1]->textContent =~ m/\s$/o)
+            {
+              $p->insertBefore (&t (' '), $tok);
+              $len++;
             }
 
           my $c = &n ("<cnt>&amp;</cnt>");
+          $p->insertBefore ($c, $tok);
+          $p->insertBefore (&t ("\n" . (' ' x $indent)), $tok);
+          $p->insertBefore (&n ("<cnt>&amp;</cnt>"), $tok);
+          $p->insertBefore (&t (' '), $tok);
 
-          $node->parentNode->insertBefore ($c, $node);
-          $node->parentNode->insertBefore (&t ("\n" . (' ' x $indent)), $node);
-          $node->parentNode->insertBefore (&n ("<cnt>&amp;</cnt>"), $node);
-          $node->parentNode->insertBefore (&t (" "), $node);
-          $$plen = $indent + 2 + length ($node->textContent);
+          push @cnt, $c;
+          push @len, $len;
 
-          $lenc++;
-          push @$len, $lenc;
-          push @$cnt, $c;
+          $start = $len = $indent + 2;
         }
-    }
-  else
-    {
-      my @c = $node->childNodes;
-      while (my $c = shift (@c))
-        {
-          &_fold ($c, $plen, $indent, $cnt, $len) && shift (@c);
-        }
+
+      $len += $w;
     }
 
-  return $shift;
+  return (\@cnt, \@len);
 }
 
 
@@ -216,10 +273,12 @@ sub expand
 {
   my $stmt = shift;
 
-  for (&f ('.//f:cnt', $stmt), &f ('.//f:C', $stmt))
+  for (&f ('.//f:cnt', $stmt), &f ('.//f:C', $stmt), &f ('.//f:L', $stmt))
     {
       $_->unbindNode ();
     }
+# merge text nodes first, so that all blanks around former line breaks are collapsed
+  $stmt->normalize ();
   for (&f ('.//text ()', $stmt))
     {
       my $data = $_->data;
@@ -237,22 +296,25 @@ sub expand
 
 sub fold
 {
-  my $stmt = shift;
+  my ($stmt, %opts) = @_;
+
+# align => 0 : put ampersands at the end of lines, separated by a single blank, instead of aligning them
+# width       : maximum line length (default 100)
+  my $align = exists ($opts{align}) ? $opts{align} : 1;
 
   &expand ($stmt);
 
   my $indent = &offset ($stmt);
 
-  my $len = $indent;
-  my @len;
-  my @cnt;
-  &_fold ($stmt, \$len, $indent, \@cnt, \@len);
+  my ($cnt, $len) = &_fold ($stmt, $indent, $opts{width} || 100);
 
-  my ($lenmax) = sort { $b <=> $a } @len;
-
-  for my $i (0 .. $#cnt)
+  if ($align)
     {
-      $cnt[$i]->parentNode->insertBefore (&t (' ' x ($lenmax - $len[$i])), $cnt[$i]);
+      my ($lenmax) = sort { $b <=> $a } @$len;
+      for my $i (0 .. $#$cnt)
+        {
+          $cnt->[$i]->parentNode->insertBefore (&t (' ' x ($lenmax - $len->[$i])), $cnt->[$i]);
+        }
     }
 
   $stmt->normalize ();

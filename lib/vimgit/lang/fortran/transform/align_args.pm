@@ -86,9 +86,7 @@ sub apply
   
     }
 
-  my $n = $buf->Count ();
-  $buf->Delete (1, $n);
-  $buf->Append (0, split (m/\n/o, $dom->textContent));
+  $class->buf_set_text (buffer => $buf, text => $dom->textContent);
 
   $win->Cursor ($row, $col);
 }
