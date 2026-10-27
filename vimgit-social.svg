@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1b24"/>
+      <stop offset="1" stop-color="#11261f"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#1d3340" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#grid)" opacity="0.5"/>
+
+  <!-- ===== Left: title ===== -->
+  <g font-family="DejaVu Sans Mono, monospace">
+    <text x="80" y="250" font-size="104" font-weight="bold" fill="#e8f1ec">vim<tspan fill="#5fd38d">git</tspan></text>
+    <rect x="80" y="272" width="64" height="8" fill="#5fd38d"/>
+    <text x="80" y="335" font-size="25" fill="#a9c2b5">vim + a word index</text>
+    <text x="80" y="370" font-size="25" fill="#a9c2b5">of your git repositories</text>
+
+    <g font-size="19" fill="#7f9a8c">
+      <text x="80" y="450"><tspan fill="#5fd38d">TAB</tspan>  every file using a word</text>
+      <text x="80" y="482"><tspan fill="#5fd38d">²</tspan>    jump to a definition</text>
+      <text x="80" y="514"><tspan fill="#5fd38d">:CT</tspan>  call trees · <tspan fill="#5fd38d">:TT</tspan> type trees</text>
+    </g>
+    <text x="80" y="578" font-size="16" fill="#56705f">Fortran · C · C++  —  built for IAL &amp; its bundles</text>
+  </g>
+
+  <!-- ===== Right: editor window ===== -->
+  <g transform="translate(640,78)" font-family="DejaVu Sans Mono, monospace">
+    <rect width="572" height="484" rx="12" fill="#0a1117" stroke="#24404d" stroke-width="2"/>
+    <rect width="572" height="36" rx="12" fill="#152630"/>
+    <rect y="24" width="572" height="12" fill="#152630"/>
+    <circle cx="22" cy="18" r="6" fill="#e06c5b"/>
+    <circle cx="42" cy="18" r="6" fill="#e5c07b"/>
+    <circle cx="62" cy="18" r="6" fill="#5fd38d"/>
+    <text x="286" y="23" font-size="14" fill="#7f9a8c" text-anchor="middle">ial-source/arpifs/adiab/cpg_gp_tenc.F90</text>
+
+    <!-- code -->
+    <g font-size="16">
+      <g fill="#3d5868" text-anchor="end">
+        <text x="38" y="72">41</text><text x="38" y="96">42</text><text x="38" y="120">43</text>
+        <text x="38" y="144">44</text><text x="38" y="168">45</text>
+      </g>
+      <text x="54" y="72"><tspan fill="#c678dd">USE</tspan><tspan fill="#d4ddd8"> YOMCST, </tspan><tspan fill="#c678dd">ONLY</tspan><tspan fill="#d4ddd8"> : TCST</tspan></text>
+      <text x="54" y="96" fill="#56705f">! tendencies for coupling</text>
+      <text x="54" y="120"><tspan fill="#c678dd">IF</tspan><tspan fill="#d4ddd8"> (LLTENC) </tspan><tspan fill="#c678dd">THEN</tspan></text>
+      <!-- cursor line -->
+      <rect x="50" y="128" width="516" height="22" fill="#5fd38d" opacity="0.10"/>
+      <text x="73.3" y="144" fill="#c678dd">CALL</text>
+      <rect x="121.4" y="129" width="10" height="20" fill="#5fd38d"/>
+      <text x="121.4" y="144" fill="#0a1117" font-weight="bold">E</text>
+      <text x="131" y="144" fill="#61afef" font-weight="bold">TENC<tspan fill="#d4ddd8" font-weight="normal">(YDGEOM, YDCST, ...)</tspan></text>
+      <text x="54" y="168" fill="#c678dd">ENDIF</text>
+    </g>
+
+    <!-- divider / status line -->
+    <rect x="0" y="188" width="572" height="26" fill="#152630"/>
+    <text x="14" y="206" font-size="14" fill="#5fd38d" font-weight="bold">:CT cpg_gp_tenc 2</text>
+    <text x="558" y="206" font-size="14" fill="#7f9a8c" text-anchor="end">calltree</text>
+
+    <!-- call tree -->
+    <g font-size="16" fill="#d4ddd8">
+      <g stroke="#3f7f5f" stroke-width="2" fill="none">
+        <!-- root to children -->
+        <path d="M150 340 H178"/>
+        <path d="M178 270 V410"/>
+        <path d="M178 270 H202"/>
+        <path d="M178 410 H202"/>
+        <!-- ETENC to children -->
+        <path d="M316 410 H380"/>
+        <path d="M380 360 V460"/>
+        <path d="M380 360 H402"/>
+        <path d="M380 410 H402"/>
+        <path d="M380 460 H402"/>
+      </g>
+      <rect x="14" y="326" width="136" height="28" rx="5" fill="#5fd38d" opacity="0.15" stroke="#5fd38d"/>
+      <text x="82" y="345" text-anchor="middle" fill="#e8f1ec" font-weight="bold">CPG_GP_TENC</text>
+
+      <text x="210" y="275">ABOR1 <tspan fill="#e5c07b">[+9]</tspan></text>
+      <text x="210" y="415" fill="#61afef" font-weight="bold">ETENC <tspan fill="#e5c07b" font-weight="normal">[+1]</tspan></text>
+
+      <text x="410" y="365">ABOR1 <tspan fill="#56705f">(see 1)</tspan></text>
+      <text x="410" y="415">SUESC2R <tspan fill="#56705f">...</tspan></text>
+      <text x="410" y="465">GPCOUPL</text>
+    </g>
+  </g>
+</svg>
