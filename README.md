@@ -139,23 +139,21 @@ it directly.
 
 ## Call trees
 
-`:CT cpg` writes `.vimgit/calltree=/cpg.txt` and opens it:
+`:CT cpg_gp_tenc 2` writes `.vimgit/calltree=/cpg_gp_tenc.depth=2.txt` and
+opens it, the cursor on `CPG_GP_TENC`:
 
 ```
-CPG
-├── YDCPG_SL2%SET (type-bound)
-├── CPG_GP_TENC
-│   ├── ABOR1 [+9]
-│   └── ETENC [+1]
-│       ├── ABOR1 (see line 4)
-│       ├── SUESC2R
-│       │   └── ABOR1 (see line 4)
-│       └── GPCOUPL
-...
+                ┌── ABOR1 [+9]
+                │
+CPG_GP_TENC ────┤                  ┌── ABOR1 (see line 1)
+                │                  │
+                └── ETENC [+1] ────┼── SUESC2R ...
+                                   │
+                                   └── GPCOUPL
 ```
 
-- one routine per line, drawn with lines; the definitions are kept next to the
-  tree (`cpg.loc`), for `²`;
+- each routine is in the middle of the routines it calls, on its right; the
+  definitions are kept next to the tree (`cpg_gp_tenc.depth=2.loc`), for `²`;
 - a routine is expanded once; later, `(see line N)`, or `(recursive, see line N)`;
 - `[+n]`: other definitions exist; the one shown is, in this order, in the
   caller's file, in the caller's repository, in a file named after the
@@ -167,22 +165,16 @@ CPG
   (`...` marks routines not expanded).
 
 In a tree, `<TAB>` on a name searches it, `²` opens its definition (a list for
-`[+n]`); on `(see line N)`, both go to line N. `zc`, `zo`, `zM`, `zR` fold and
-unfold (folding by depth). `:CTR rain_ice` shows the routines calling `RAIN_ICE`, drawn from right
-to left, each caller on the left of the routine it calls; notes come first:
+`[+n]`); on `(see line N)`, both go to line N. Big trees are wide (`:CT cpg`:
+4,531 lines, 535 columns): a depth limit keeps them small.
+
+`:CTR rain_ice` shows the routines calling `RAIN_ICE` the other way, each
+caller on the left of the routine it calls:
 
 ```
-                                          RAIN_ICE
-                                  ARO_RAIN_ICE ──┘
-                           APL_AROME_MICRO ──┘
-                             APL_AROME ──┘
-                           MF_PHYS ──┘
-                           CPG ──┘
-                   CPG_DRV ──┤
-              GP_MODEL ──┘   │
- ... GP_MODEL_HEAP ──┤       │
-...
-  (see line 7) CPG_DRV ──┤
+    CPG_DRV ... ──┐
+                  ├──── CPG ─────── MF_PHYS ─────── APL_AROME ─────── ...
+DO_PARALLEL ... ──┘
 ```
 
 Only `CALL` statements are seen, not function calls; a call whose name is on a
