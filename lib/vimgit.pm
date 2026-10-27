@@ -320,8 +320,30 @@ sub CALLTREE
           return;
         }
 
+      $depth = $self->{depth} unless (defined ($depth));
+
       return $self->typetree (word => $word, depth => $depth, users => $opt{users}, hist => 1) if ($opt{types});
       return $self->calltree (word => $word, depth => $depth, callers => $opt{callers}, hist => 1);
+    };
+
+  $self->reportbug ($@);
+}
+
+sub CONFIG
+{
+
+# :CONFIG : the settings in use, and where they come from
+
+  my $self = shift;
+
+  eval
+    {
+      my $f = "$self->{TOP}/tmp=/config.txt";
+      my $fh = 'FileHandle'->new (">$f") or die ("Cannot write $f");
+      $fh->print ("# vimgit settings for $self->{ROOT}\n", $self->{workspace}{config}->text ());
+      $fh->print ("# warning: $_\n") for (@{ $self->{workspace}{warnings} });
+      $fh->close ();
+      $self->edit (files => [ $f ], hist => 1);
     };
 
   $self->reportbug ($@);

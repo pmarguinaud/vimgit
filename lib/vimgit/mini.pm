@@ -26,6 +26,17 @@ sub new
   $self->{workspace} ||= 'vimgit::workspace'->new (root => $self->{ROOT})
     if ($self->{ROOT});
 
+# settings : results per page, files above which git searches, lines around a match, depth
+# of trees
+
+  if (my $c = $self->{workspace} && $self->{workspace}{config})
+    {
+      $self->{maxfind} = $c->value ('results');
+      $self->{gitgrep} = $c->value ('gitgrep');
+      $self->{context} = $c->value ('context');
+      $self->{depth}   = $c->value ('depth');
+    }
+
   return $self;
 }
 

@@ -37,6 +37,7 @@ COMMANDS					*vimgit-commands*
 :T align_use	clean up and align USE statements (needs fxtran)
 :C		make the current file a single link (done before writes)
 :H		write the history of all windows to the log (-v)
+:CONFIG		show the settings in use, and where they come from
 
 RESULTS						*vimgit-results*
 
@@ -65,12 +66,19 @@ its declaration; <TAB> searches the word under the cursor.
 WORKSPACE					*vimgit-workspace*
 
 vimgit works in the directory holding .vimgit/config (looking upward),
-otherwise in the current git repository. .vimgit/config lists the
-repositories (repo <path>), files not to index (exclude <repo> <pattern>),
-the names of files to index (index <glob> ...) and routines left out of call
-trees (blacklist <name> ...). .vimgitignore files in
-repositories also exclude files. Indexes are built by vimgit -i (missing
-ones) or vimgit -I (all, again). vimgit runs /bin/git, or $GITVIMGIT if set.
+otherwise in the current git repository. Indexes are built by vimgit -i
+(missing ones) or vimgit -I (all, again). .vimgitignore files in
+repositories exclude files.
+
+CONFIGURATION					*vimgit-config*
+
+~/.vimgit/config, then .vimgit/config, both Perl; the second adds to the
+first or overrides it. Settings: repo qw (...) (workspace only), exclude
+<repo> => '<pattern>', index qw (<glob> ...), blacklist qw (<name> ...),
+git, vim, jobs, results, gitgrep, context, keep, depth, key <action> =>
+<keys> (actions: search, search_window, definition, definition_window,
+back). In lists, '-name' removes an entry, '-' empties the list. vimgit -c
+and :CONFIG show the settings in use and where they come from.
 See README.md in the vimgit directory.
 EOF
 
@@ -88,6 +96,7 @@ use Getopt::Long qw (:config no_ignore_case);
 use Data::Dumper;
 use File::Path;
 use Cwd qw ();
+use vimgit::config;
 use vimgit::mini;
 use vimgit::workspace;
 
@@ -117,16 +126,41 @@ sub bt
 $SIG{__WARN__} = \&bt;
 $SIG{__DIE__} = \&bt;
 
-my @opts = qw (d v i I g b w h x);
+my @opts = qw (d v i I g b w h x c);
 my %opts = map { ($_, 0), } @opts;
-$opts{j} = 4;
+$opts{j} = undef;
 &GetOptions ((map { ($_, \$opts{$_}) } @opts), 'j=i' => \$opts{j});
 
-unless (-x 'vimgit::git'->path ())
+# ~/.vimgit/config first : it gives the path of git, needed to find the workspace
+
+my @NOTE;
+
+my $HC = eval { 'vimgit::config'->load () };
+unless ($HC)
   {
-    printf STDERR ("vimgit: cannot run git as %s; set GITVIMGIT to the path of git\n", 'vimgit::git'->path ());
+    print STDERR $@;
     exit (1);
   }
+
+'vimgit::git'->setpath ($HC->value ('git'));
+
+sub checkgit
+{
+  unless (-x 'vimgit::git'->path ())
+    {
+      printf STDERR ("vimgit: cannot run git as %s; set git to the path of git in ~/.vimgit/config\n", 'vimgit::git'->path ());
+      exit (1);
+    }
+}
+
+&checkgit ();
+
+# settings of older versions
+
+push @NOTE, "\$GITVIMGIT is ignored; set git in ~/.vimgit/config" if ($ENV{GITVIMGIT});
+push @NOTE, "\$VIMPACKVIM is ignored; set vim in ~/.vimgit/config" if ($ENV{VIMPACKVIM});
+push @NOTE, "~/.vimgit.rc is no longer read; key mappings are set in ~/.vimgit/config"
+  if (-f (($ENV{HOME} || (getpwuid $>)[7]) . '/.vimgit.rc'));
 
 # the backtrace may be read from files given on the command line : before changing directory
 
@@ -164,9 +198,24 @@ if ($opts{b})
 # of the current git repository; otherwise the current directory, once its repositories
 # have been listed in .vimgit/config
 
-my @NOTE;
-
 my $ROOT = 'vimgit::workspace'->findroot ('.') || 'vimgit::git'->getTopDirectory (dir => '.');
+
+# -c : the settings in use, and where they come from
+
+if ($opts{c})
+  {
+    my $c = eval { 'vimgit::config'->load (root => $ROOT) };
+    unless ($c)
+      {
+        print STDERR $@;
+        exit (1);
+      }
+    print "# vimgit settings" . ($ROOT ? " for $ROOT" : '') . "\n";
+    print $c->text ();
+    print "# warning: $_\n" for (@{ $c->{warnings} });
+    print "# note: $_ uses the old format; the lines above are the new one\n" for (@{ $c->{old} });
+    exit (0);
+  }
 
 unless ($ROOT)
   {
@@ -197,9 +246,20 @@ for (@ARGV)
 
 chdir ($ROOT) or die ("Cannot change directory to $ROOT");
 
-my $WS = 'vimgit::workspace'->new (root => $ROOT);
+my $WS = eval { 'vimgit::workspace'->new (root => $ROOT) };
+unless ($WS)
+  {
+    print STDERR $@;
+    exit (1);
+  }
+
+&checkgit ();
+
+my $CF = $WS->{config};
 
 push @NOTE, @{ $WS->{warnings} };
+
+$opts{j} = $CF->value ('jobs') unless (defined ($opts{j}));
 
 # -i : create missing indexes; -I : create them again; for all repositories, or those named
 
@@ -273,7 +333,9 @@ if ($opts{i} || $opts{I})
 
 if (my @noindex = $WS->noindex ())
   {
-    push @NOTE, "no index for @noindex: run vimgit -i";
+    my @other = grep { $WS->repo ($_)->othersettings () } @noindex;
+    push @NOTE, "no index for @noindex: run vimgit -i"
+              . (@other ? " (@other: indexes built with other settings, or by an older vimgit)" : '');
   }
 
 my $dTOP = '.vimgit';
@@ -287,17 +349,12 @@ my ($fCOM, $fHLP) = ("$dTOP/start.vim", "$dHLP/vimgit.txt");
 
 my $hCOM = 'FileHandle'->new (">$fCOM");
 
-my $HOME = (getpwuid $>)[7];
 
 $hCOM->print (<< "EOF");
 
 
 set helpfile=$fHLP
 helptags $dHLP
-
-if filereadable ('$HOME/.vimgit.rc')
-  source $HOME/.vimgit.rc
-endif
 
 if has('perl')
 
@@ -329,16 +386,23 @@ command! -nargs=1 E      :perl $::EDITOR->EDIT ("<args>")
 command! -nargs=* T      :perl $::EDITOR->TRANSFORM ("<args>")
 command! -nargs=0 H      :perl $::EDITOR->LOGHIST ()
 command! -nargs=0 R      :perl $::EDITOR->REFRESH ()
-map <TAB>                :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 0)<CR>
-map œ                    :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 1)<CR>
-map `                    :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 1)<CR>
-map ²                    :perl $::EDITOR->FIND (auto => 1, new_window => 0, defn => 1)<CR>
-map <S-TAB>              :perl $::EDITOR->FIND (auto => 1, new_window => 1, defn => 0)<CR>
-map <C-²>                :perl $::EDITOR->FIND (auto => 1, new_window => 1, defn => 1)<CR>
-map <BS>                 :perl $::EDITOR->BACK ()<CR>
+command! -nargs=0 CONFIG :perl $::EDITOR->CONFIG ()
 autocmd BufWritePre   *  :perl $::EDITOR->COMMIT ();
 autocmd BufWritePost  *  :perl $::EDITOR->UPDATE ();
 EOF
+
+# key mappings : the key settings of the configuration
+
+my %ACTION = (search            => 'FIND (auto => 1, new_window => 0, defn => 0)',
+              search_window     => 'FIND (auto => 1, new_window => 1, defn => 0)',
+              definition        => 'FIND (auto => 1, new_window => 0, defn => 1)',
+              definition_window => 'FIND (auto => 1, new_window => 1, defn => 1)',
+              back              => 'BACK ()');
+
+for my $action (@vimgit::config::ACTIONS)
+  {
+    $hCOM->printf ("map %-20s :perl \$::EDITOR->%s<CR>\n", $_, $ACTION{$action}) for ($CF->keysof ($action));
+  }
 
 if ($opts{v})
   {
@@ -378,7 +442,7 @@ $hCOM->close ();
 
 my $hHELP = 'FileHandle'->new (">$fHLP")->print ($HELP);
 
-my $VIM = $ENV{VIMPACKVIM} || 'vim';
+my $VIM = $CF->value ('vim');
 
 exec ($VIM, ($opts{g} ? ('-g') : ()), -S => $fCOM);
 
