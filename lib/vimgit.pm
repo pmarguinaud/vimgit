@@ -289,6 +289,101 @@ sub find
                                    rank => $rank, defn => $defn, call => $call, repo => $args{repo});
 }
 
+sub CALLTREE
+{
+
+# :CT [name [depth]], :CTR [name [depth]] (callers => 1); without a name, the word under
+# the cursor; :TT, :TTR (types => 1, users => 1) : the same for derived types
+
+  my ($self, $argstr, %opt) = @_;
+
+  eval
+    {
+      my ($word, $depth) = split (' ', $argstr || '');
+
+      unless (defined ($word))
+        {
+          my ($row, $col) = $self->getcurwin ()->Cursor ();
+          my ($line) = $self->getcurbuf ()->Get ($row);
+          ($word) = &vimgit::tools::findword ($col, $line);
+        }
+
+      unless (defined ($word) && ($word =~ m/^\w+$/o))
+        {
+          &VIM::Msg (sprintf ("`%s' is not a %s name", defined ($word) ? $word : '', ($opt{types} ? 'type' : 'routine')));
+          return;
+        }
+
+      if (defined ($depth) && ($depth !~ m/^\d+$/o))
+        {
+          &VIM::Msg ("`$depth' is not a depth");
+          return;
+        }
+
+      return $self->typetree (word => $word, depth => $depth, users => $opt{users}, hist => 1) if ($opt{types});
+      return $self->calltree (word => $word, depth => $depth, callers => $opt{callers}, hist => 1);
+    };
+
+  $self->reportbug ($@);
+}
+
+sub calltree
+{
+  my ($self, %args) = @_;
+
+  $self->{history}->push ($self->getcurwin (), 'calltree', %args)
+    if ($args{hist});
+
+  use vimgit::calltree;
+  return 'vimgit::calltree'->create (editor => $self, %args);
+}
+
+sub typetree
+{
+  my ($self, %args) = @_;
+
+  $self->{history}->push ($self->getcurwin (), 'typetree', %args)
+    if ($args{hist});
+
+  use vimgit::typetree;
+  return 'vimgit::typetree'->create (editor => $self, %args);
+}
+
+sub definition
+{
+
+# definition of routine $args{word} (CALL x, #include "x.intfb.h"), or of derived type
+# $args{word} (types : TYPE (x), CLASS (x)), from the definitions of the indexes; a pick list
+# when there are several, the most likely first; without this information in the indexes, a
+# search for the definition ($args{regex})
+
+  my ($self, %args) = @_;
+
+  my $ws = $self->{workspace};
+  my $word = lc ($args{word});
+
+  my @d;
+
+  if ($ws->refresh (types => $args{types}))
+    {
+
+# the caller : the current file
+
+      no warnings;
+      my $f = 'File::Spec'->canonpath ('File::Spec'->abs2rel ($main::curbuf->Name ()));
+      my ($repo) = $ws->repo_of ($f);
+      @d = $ws->definitions ($word, types => $args{types}, ($repo ? (caller => { file => $f, repo => $repo }) : ()));
+    }
+
+  return $self->find (word => $word, defn => 1, regex => $args{regex}, hist => 1, lang => 'fortran')
+    unless (@d);
+
+  my @P = map { "$_->{file}:$_->{line}" } @d;
+  my $P = (@P > 1) ? $self->pick (@P) : $P[0];
+
+  return $P ? $self->edit (files => [ $P ], hist => 1) : undef;
+}
+
 sub BACK
 {
   my $self = shift;

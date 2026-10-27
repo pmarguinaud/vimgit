@@ -78,6 +78,8 @@ exclude fxtran-acdc tests/**   # files of a repository not to index (gitignore p
 
 index *.F90 *.F *.h            # names of the files to index (any case), instead of
                                # *.f90 *.f *.c *.cc *.cpp *.h *.hpp
+
+blacklist DR_HOOK MPL_*        # routines left out of call trees (any case, * allowed)
 ```
 
 Repositories not listed are ignored. Lines naming an alias, a sub-directory or
@@ -97,6 +99,13 @@ Each repository has its own index, in `.git/vimgit/<commit>/`, built for its
 current commit by `vimgit -i`. The 3 most recent indexes of a repository are
 kept.
 
+Besides words and file names, the index records, for Fortran files, the
+routines each file defines (subroutines, functions, programs; not interface
+blocks), the routines each one calls (`CALL` statements), the derived types
+each file defines and their components of derived type. Call trees, type
+trees and the definition key use them. Indexes built by older versions of vimgit lack
+them: `vimgit -i` builds them again.
+
 An index stays usable while you work: at the first search, the files changed
 since its commit (committed, modified, untracked) are scanned again; a file
 written in vim is scanned again at once; when HEAD moves (commit, checkout,
@@ -113,18 +122,103 @@ A repository without an index is reported at start and searched with
 |---|---|
 | `<TAB>` | search the word under the cursor; in a result buffer, open the file or line under the cursor, or the next page on `<<<< >>>>` |
 | `<S-TAB>` | same, in a new window |
-| `` ` ``, `²`, `œ` | go to the definition of the routine (`CALL x`, `#include "x.intfb.h"`), module (`USE x`), type (`TYPE (x)`, `CLASS (x)`) under the cursor; on `%x`, list the lines using component `x` |
+| `` ` ``, `²`, `œ` | go to the definition of the routine (`CALL x`, `#include "x.intfb.h"`), module (`USE x`), type (`TYPE (x)`, `CLASS (x)`) under the cursor; on `%x`, list the lines using component `x`; a routine or a type with several definitions gives a list to choose from, the most likely first |
 | `<C-²>` | same, in a new window |
 | `<BS>` | go back |
 | `:F word` | search a word in all repositories |
 | `:FR word` | search a word in the repository of the current buffer |
 | `:E file` | open a file, as on the command line |
 | `:R` | rescan changed files (after changes made outside vim) |
+| `:CT [name [depth]]` | call tree of a routine (the word under the cursor without a name): the routines it calls, and so on |
+| `:CTR [name [depth]]` | tree of the routines calling it |
+| `:TT [name [depth]]` | type tree of a derived type (the word under the cursor without a name): the types of its components, and so on |
+| `:TTR [name [depth]]` | tree of the types using it |
 | `:T align_args`, `:T align_use` | align the declarations of dummy arguments; clean up and align `USE` statements (needs fxtran) |
 | `:C` | make the current file a single link (done before each write) |
 
 Results show 200 files at a time; `<TAB>` on the `<<<< >>>>` line at the end
 shows the next ones. When a definition is found in a single file, vimgit opens
 it directly.
+
+## Call trees
+
+`:CT cpg_gp_tenc 2` writes `.vimgit/calltree=/cpg_gp_tenc.depth=2.txt` and
+opens it, the cursor on `CPG_GP_TENC`:
+
+```
+                ┌── ABOR1 [+9]
+                │
+CPG_GP_TENC ────┤                  ┌── ABOR1 (see line 1)
+                │                  │
+                └── ETENC [+1] ────┼── SUESC2R ...
+                                   │
+                                   └── GPCOUPL
+```
+
+- each routine is in the middle of the routines it calls, on its right; the
+  definitions are kept next to the tree (`cpg_gp_tenc.depth=2.loc`), for `²`;
+- a routine is expanded once; later, `(see line N)`, or `(recursive, see line N)`;
+- `[+n]`: other definitions exist; the one shown is, in this order, in the
+  caller's file, in the caller's repository, in a file named after the
+  routine, in the first repository of the config; routines contained in
+  another file (after `CONTAINS`) come last;
+- `(not found)`: no definition in the indexed repositories;
+  `(type-bound)`: `CALL x%y`, shown but not followed;
+- `blacklist` names of the config are left out; `:CT cpg 3` stops at 3 levels
+  (`...` marks routines not expanded).
+
+In a tree, `<TAB>` on a name searches it, `²` opens its definition (a list for
+`[+n]`); on `(see line N)`, both go to line N. Big trees are wide (`:CT cpg`:
+4,531 lines, 535 columns): a depth limit keeps them small.
+
+`:CTR rain_ice` shows the routines calling `RAIN_ICE` the other way, each
+caller on the left of the routine it calls:
+
+```
+    CPG_DRV ... ──┐
+                  ├──── CPG ─────── MF_PHYS ─────── APL_AROME ─────── ...
+DO_PARALLEL ... ──┘
+```
+
+Only `CALL` statements are seen, not function calls; a call whose name is on a
+continuation line (`CALL &` / `& NAME`) is missed.
+
+## Type trees
+
+`:TT mgrids_advection_args` writes `.vimgit/typetree=/mgrids_advection_args.txt`:
+
+```
+                          ┌── TYPE, EXTENDS (DWARF_ARGS)
+                          │
+                          │                                     ┌── TYPE (TYPE_T0) :: YT0
+MGRIDS_ADVECTION_ARGS ────┤                                     │
+                          │                                     ├── TYPE (TYPE_T9) :: YT9
+                          │                                     │
+                          │                                     ...
+                          └── TYPE (TGMV), POINTER :: YRGMV ────┤
+                                                                │
+                                                                └── TYPE (TYPE_T0) :: YT5 (see line 3)
+```
+
+- each type is in the middle of its components of derived type (`TYPE (x)`,
+  `CLASS (x)`), shown as declared, with `POINTER` or `ALLOCATABLE`; the
+  parent type of `EXTENDS` comes first; components of intrinsic types and
+  bound procedures are left out;
+- a type is expanded once, then `(see line N)`; `[+n]`, `...`, `(not found)`
+  as in call trees; the definition of a type is chosen with the rules of
+  routines.
+
+`²` on a type opens its definition (a list for `[+n]`), on a component the
+line declaring it; `<TAB>` searches the word under the cursor.
+
+`:TTR tcst` shows the types using `TCST`, on its left, as `MODEL%YRCST`
+(component `YRCST` of `MODEL`), or `FIELDS (extends)`:
+
+```
+CLASS_SUPERGOM%MODEL_OBJ_PTR ──┐
+                               │
+         ERRMOD_FIELDS%MODEL ──┼──── MODEL%YRCST ──┐
+...                                                ├──── TCST [+1]
+```
 
 `~/.vimgit.rc` is sourced at start, for your own vim settings.
