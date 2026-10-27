@@ -168,8 +168,22 @@ CPG
 
 In a tree, `<TAB>` on a name searches it, `²` opens its definition (a list for
 `[+n]`); on `(see line N)`, both go to line N. `zc`, `zo`, `zM`, `zR` fold and
-unfold (folding by depth). `:CTR rain_ice` shows the routines calling `RAIN_ICE` the same
-way.
+unfold (folding by depth). `:CTR rain_ice` shows the routines calling `RAIN_ICE`, drawn from right
+to left, each caller on the left of the routine it calls; notes come first:
+
+```
+                                          RAIN_ICE
+                                  ARO_RAIN_ICE ──┘
+                           APL_AROME_MICRO ──┘
+                             APL_AROME ──┘
+                           MF_PHYS ──┘
+                           CPG ──┘
+                   CPG_DRV ──┤
+              GP_MODEL ──┘   │
+ ... GP_MODEL_HEAP ──┤       │
+...
+  (see line 7) CPG_DRV ──┤
+```
 
 Only `CALL` statements are seen, not function calls; a call whose name is on a
 continuation line (`CALL &` / `& NAME`) is missed.

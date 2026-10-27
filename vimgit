@@ -45,7 +45,8 @@ One routine per line, drawn with lines. A routine is expanded once, then
 "(see line N)". [+n]: other definitions exist. "(not found)": no definition
 in the indexed repositories. "(type-bound)": CALL x%y, not followed. In a
 tree, <TAB> on a name searches it, ² opens its definition (a list for [+n]);
-on "(see line N)", both go to line N.
+on "(see line N)", both go to line N. :CTR draws from right to left, each
+caller on the left of the routine it calls.
 zc zo zM zR fold and unfold. blacklist lines of .vimgit/config leave
 routines out.
 

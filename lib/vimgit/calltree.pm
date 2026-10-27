@@ -9,6 +9,13 @@ package vimgit::calltree;
 # ├── CPG_DYN_SLG (see line 12)
 # └── YDCPG_SL1AUX%SET (type-bound)
 #
+# trees of callers are drawn from right to left, each caller on the left of the routine it
+# calls :
+#
+#                  RAIN_ICE
+#      ARO_RAIN_ICE ──┘
+# APL_AROME_MICRO ──┘
+#
 # the definition of the routine of each line is in a file next to the tree (.loc instead
 # of .txt), one line per line of the tree, empty when there is none
 
@@ -17,12 +24,17 @@ use strict;
 use File::Basename;
 use File::Path;
 use FileHandle;
+use List::Util qw (max);
 
 use base qw (vimgit::file);
 
 # branches of the tree; the strings are UTF-8 bytes, as vim gives them
 
 our ($TEE, $ELL, $BAR, $GAP) = ('├── ', '└── ', '│   ', '    ');
+
+# same, from right to left
+
+our %MIRROR = ($TEE => ' ──┤', $ELL => ' ──┘', $BAR => '   │', $GAP => '    ');
 
 sub new
 {
@@ -150,19 +162,33 @@ sub create
       my $prefix = '';
       if ($l > 0)
         {
-          $prefix = join ('', map { $more[$_] ? $BAR : $GAP } (1 .. $l - 1)) . ($more[$l] ? $TEE : $ELL);
+          my @b = ((map { $more[$_] ? $BAR : $GAP } (1 .. $l - 1)), ($more[$l] ? $TEE : $ELL));
+          $prefix = join ('', $callers ? (map { $MIRROR{$_} } reverse (@b)) : @b);
         }
       $#more = $l;
       $more[$l] = 1;
       push @$L, $prefix;
     }
 
+# from right to left : the notes on the left, lines aligned on the right (a branch is 4
+# characters)
+
+  my $width = &max (map { length (uc ($_->[1]) . ($_->[2] ? " $_->[2]" : '')) + 4 * $_->[0] } @line);
+
   my $fh = 'FileHandle'->new (">$filename");
   my $fl = 'FileHandle'->new ('>' . &locfile ($filename));
   for (@line)
     {
       my ($l, $name, $note, $loc, $prefix) = @$_;
-      $fh->print ($prefix . uc ($name) . ($note ? " $note" : '') . "\n");
+      if ($callers)
+        {
+          my $s = ($note ? "$note " : '') . uc ($name);
+          $fh->print ((' ' x ($width - length ($s) - 4 * $l)) . $s . $prefix . "\n");
+        }
+      else
+        {
+          $fh->print ($prefix . uc ($name) . ($note ? " $note" : '') . "\n");
+        }
       $fl->print ("$loc\n");
     }
   $fh->close ();
@@ -173,7 +199,8 @@ sub create
   &VIM::DoCommand ("silent! bwipeout $filename");
   &VIM::DoCommand ("silent view $filename");
   &VIM::DoCommand ('setlocal foldmethod=expr foldlevel=99 nowrap');
-  &VIM::DoCommand (q(let &l:foldexpr = "strchars(matchstr(getline(v:lnum), '^[│├└─ ]*'))/4"));
+  &VIM::DoCommand ($callers ? q(let &l:foldexpr = "strchars(matchstr(getline(v:lnum), '[│┤┘─ ]*$'))/4")
+                            : q(let &l:foldexpr = "strchars(matchstr(getline(v:lnum), '^[│├└─ ]*'))/4"));
 
   &VIM::Msg (sprintf ("%s %s: %d lines, %d routines", ($callers ? 'Callers of' : 'Call tree of'), uc ($word),
                       scalar (@line), scalar (keys (%first))));
@@ -184,11 +211,19 @@ sub create
 sub parse_
 {
 
-# branches, name and note of a line of a tree; the note starts at column $start
+# name and note of a line of a tree; the note is between columns $from and $to
 
-  my $line = shift;
+  my ($line, $callers) = @_;
+
+  if ($callers)
+    {
+      my ($blank, $note, $name) = ($line =~ m/^(\s*)(.*?)\s*(\S+)(?:$MIRROR{$TEE}|$MIRROR{$ELL}|$MIRROR{$BAR}|$GAP)*\s*$/)
+        or return;
+      return (name => $name, note => $note, from => length ($blank), to => length ($blank . $note));
+    }
+
   my ($prefix, $name, $note) = ($line =~ m/^((?:$BAR|$GAP|$TEE|$ELL)*)(\S+)\s*(.*?)\s*$/) or return;
-  return (name => $name, note => $note, start => length ($prefix . $name) + 1);
+  return (name => $name, note => $note, from => length ($prefix . $name) + 1, to => length ($line));
 }
 
 sub locations_
@@ -214,9 +249,9 @@ sub do_find
   my ($row, $col) = $edtr->getcurwin ()->Cursor ();
   my ($line) = $curbuf->Get ($row);
 
-  my %l = &parse_ ($line) or return;
+  my %l = &parse_ ($line, $self->{file} =~ m/\.callers/o) or return;
 
-  if (($col >= $l{start}) && ($l{note} =~ m/see line (\d+)/o))
+  if (($col >= $l{from}) && ($col <= $l{to}) && ($l{note} =~ m/see line (\d+)/o))
     {
       return &VIM::DoCommand (":$1");
     }
