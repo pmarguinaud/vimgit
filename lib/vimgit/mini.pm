@@ -89,15 +89,25 @@ sub wanted_windex_
   &windex_ ($f, $windex, $text) if ($windex);
 
 # dindex : definitions, name -> [ "file:line" ], "file:line*" for contained routines;
-# cindex : routines called, "file:line" -> [ name ]
+# cindex : routines called, "file:line" -> [ name ]; tindex : definitions of derived
+# types, as dindex; tcindex : "file:line" -> [ "kind/type/name/line/attr" ], components of
+# derived types, the parent type first as "extends/parent//line/"
 
   if ($args{dindex} && ('vimgit::lang'->lang ($f) eq 'fortran'))
     {
-      for my $u (@{ 'vimgit::lang::fortran'->units ($text, fixed => (($f =~ m/\.f$/io) ? 1 : 0)) })
+      my @types;
+      for my $u (@{ 'vimgit::lang::fortran'->units ($text, fixed => (($f =~ m/\.f$/io) ? 1 : 0), types => \@types) })
         {
           my $key = "$f:$u->{line}";
           push @{ $args{dindex}{$u->{name}} }, $key . ($u->{internal} ? '*' : '');
           $args{cindex}{$key} = $u->{calls};
+        }
+      for my $t (@types)
+        {
+          my $key = "$f:$t->{line}";
+          push @{ $args{tindex}{$t->{name}} }, $key . ($t->{internal} ? '*' : '');
+          $args{tcindex}{$key} = [ ($t->{extends} ? ("extends/$t->{extends}[0]//$t->{extends}[1]/") : ()),
+                                   map { "$_->{kind}/$_->{type}/$_->{name}/$_->{line}/$_->{attr}" } @{ $t->{components} } ];
         }
     }
 }

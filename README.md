@@ -101,8 +101,9 @@ kept.
 
 Besides words and file names, the index records, for Fortran files, the
 routines each file defines (subroutines, functions, programs; not interface
-blocks) and the routines each one calls (`CALL` statements). Call trees and
-the definition key use them. Indexes built by older versions of vimgit lack
+blocks), the routines each one calls (`CALL` statements), the derived types
+each file defines and their components of derived type. Call trees, type
+trees and the definition key use them. Indexes built by older versions of vimgit lack
 them: `vimgit -i` builds them again.
 
 An index stays usable while you work: at the first search, the files changed
@@ -121,7 +122,7 @@ A repository without an index is reported at start and searched with
 |---|---|
 | `<TAB>` | search the word under the cursor; in a result buffer, open the file or line under the cursor, or the next page on `<<<< >>>>` |
 | `<S-TAB>` | same, in a new window |
-| `` ` ``, `²`, `œ` | go to the definition of the routine (`CALL x`, `#include "x.intfb.h"`), module (`USE x`), type (`TYPE (x)`, `CLASS (x)`) under the cursor; on `%x`, list the lines using component `x`; a routine with several definitions gives a list to choose from, the most likely first |
+| `` ` ``, `²`, `œ` | go to the definition of the routine (`CALL x`, `#include "x.intfb.h"`), module (`USE x`), type (`TYPE (x)`, `CLASS (x)`) under the cursor; on `%x`, list the lines using component `x`; a routine or a type with several definitions gives a list to choose from, the most likely first |
 | `<C-²>` | same, in a new window |
 | `<BS>` | go back |
 | `:F word` | search a word in all repositories |
@@ -130,6 +131,8 @@ A repository without an index is reported at start and searched with
 | `:R` | rescan changed files (after changes made outside vim) |
 | `:CT [name [depth]]` | call tree of a routine (the word under the cursor without a name): the routines it calls, and so on |
 | `:CTR [name [depth]]` | tree of the routines calling it |
+| `:TT [name [depth]]` | type tree of a derived type (the word under the cursor without a name): the types of its components, and so on |
+| `:TTR [name [depth]]` | tree of the types using it |
 | `:T align_args`, `:T align_use` | align the declarations of dummy arguments; clean up and align `USE` statements (needs fxtran) |
 | `:C` | make the current file a single link (done before each write) |
 
@@ -179,5 +182,43 @@ DO_PARALLEL ... ──┘
 
 Only `CALL` statements are seen, not function calls; a call whose name is on a
 continuation line (`CALL &` / `& NAME`) is missed.
+
+## Type trees
+
+`:TT mgrids_advection_args` writes `.vimgit/typetree=/mgrids_advection_args.txt`:
+
+```
+                          ┌── TYPE, EXTENDS (DWARF_ARGS)
+                          │
+                          │                                     ┌── TYPE (TYPE_T0) :: YT0
+MGRIDS_ADVECTION_ARGS ────┤                                     │
+                          │                                     ├── TYPE (TYPE_T9) :: YT9
+                          │                                     │
+                          │                                     ...
+                          └── TYPE (TGMV), POINTER :: YRGMV ────┤
+                                                                │
+                                                                └── TYPE (TYPE_T0) :: YT5 (see line 3)
+```
+
+- each type is in the middle of its components of derived type (`TYPE (x)`,
+  `CLASS (x)`), shown as declared, with `POINTER` or `ALLOCATABLE`; the
+  parent type of `EXTENDS` comes first; components of intrinsic types and
+  bound procedures are left out;
+- a type is expanded once, then `(see line N)`; `[+n]`, `...`, `(not found)`
+  as in call trees; the definition of a type is chosen with the rules of
+  routines.
+
+`²` on a type opens its definition (a list for `[+n]`), on a component the
+line declaring it; `<TAB>` searches the word under the cursor.
+
+`:TTR tcst` shows the types using `TCST`, on its left, as `MODEL%YRCST`
+(component `YRCST` of `MODEL`), or `FIELDS (extends)`:
+
+```
+CLASS_SUPERGOM%MODEL_OBJ_PTR ──┐
+                               │
+         ERRMOD_FIELDS%MODEL ──┼──── MODEL%YRCST ──┐
+...                                                ├──── TCST [+1]
+```
 
 `~/.vimgit.rc` is sourced at start, for your own vim settings.

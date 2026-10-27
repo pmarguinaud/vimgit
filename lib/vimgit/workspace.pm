@@ -317,10 +317,11 @@ sub refresh
 {
 
 # check the session caches of the repositories (HEAD moved, ...); returns the number of
-# repositories whose index has definitions and calls
+# repositories whose index has definitions and calls (types : definitions of types)
 
-  my $self = shift;
-  return scalar (grep { my $c = $_->cache (); $c && $c->{defs} } $self->repos ());
+  my ($self, %args) = @_;
+  my $what = $args{types} ? 'types' : 'defs';
+  return scalar (grep { my $c = $_->cache (); $c && $c->{$what} } $self->repos ());
 }
 
 sub blacklisted
@@ -343,7 +344,8 @@ sub definitions
 # definitions of routine $name in the indexed repositories (after refresh), the most likely
 # first : in the file of $args{caller}, in its repository, in a file named after the routine,
 # in the first repository of the config; routines contained in another file come last (they
-# cannot be called from there)
+# cannot be called from there); types : definitions of type $name, same order, $args{caller}
+# being the type using it
 
   my ($self, $name, %args) = @_;
 
@@ -352,7 +354,8 @@ sub definitions
   my @repo = $self->repos ();
   my %rank = map { ($repo[$_]{mount}, $_) } (0 .. $#repo);
 
-  my @d = map { my $repo = $_; map { $self->definition_ ($repo, $_, $name) } @{ $repo->definitions ($name) } } @repo;
+  my $method = $args{types} ? 'types' : 'definitions';
+  my @d = map { my $repo = $_; map { $self->definition_ ($repo, $_, $name) } @{ $repo->$method ($name) } } @repo;
 
   my $caller = $args{caller};
 
@@ -396,6 +399,31 @@ sub callers
   $name = lc ($name);
 
   return map { my $repo = $_; map { $self->definition_ ($repo, $_, $repo->nameof ($_)) } @{ $repo->callers ($name) } } $self->repos ();
+}
+
+sub components
+{
+
+# components of derived types of type definition $d : [ { kind (type, class, extends), type,
+# name, line, file } ], the parent type first
+
+  my ($self, $d) = @_;
+  return map { { %$_, file => $d->{file} } } @{ $d->{repo}->components ($d->{key}) };
+}
+
+sub users
+{
+
+# types using type $name : [ { def (definition of the type using it), component (undef for
+# an extension) } ], repositories in config order
+
+  my ($self, $name) = @_;
+
+  $name = lc ($name);
+
+  return map { my $repo = $_;
+               map { { def => $self->definition_ ($repo, $_->[0], $repo->typenameof ($_->[0])), component => $_->[1] } }
+               @{ $repo->users ($name) } } $self->repos ();
 }
 
 1;

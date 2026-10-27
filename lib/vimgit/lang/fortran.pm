@@ -67,7 +67,7 @@ sub do_find
 
 # search for type definition : TYPE X, TYPE :: X, TYPE, EXTENDS(Y), ... :: X
 
-          return $edtr->find (word => $word, defn => 1, regex => qr/^\s*type\b(?:\s*,[^:]*::|\s*::)?\s*$word\b/i, hist => 1, lang => 'fortran');
+          return $edtr->definition (word => $word, types => 1, regex => qr/^\s*type\b(?:\s*,[^:]*::|\s*::)?\s*$word\b/i);
 
         }
 
@@ -106,27 +106,56 @@ sub units
 # functions outside interface blocks; internal : contained in a program, a subroutine or a
 # function. Calls in a function contained in a subroutine or a program go to that subroutine
 # or program.
+#
+# types : an array receiving the derived types defined in $text :
+# { name, line, internal, extends => [ name, line ], components => [ { kind (type, class),
+# type, name, line, attr (pointer, allocatable, or empty) }, ... ] }; components of
+# intrinsic types and bound procedures are left out
 
   my ($class, $text, %args) = @_;
+
+  my $types = $args{types} || [];
 
   my $prefix = qr/(?:(?:pure|impure|elemental|recursive|non_recursive|module)\s+)*/i;
   my $type = qr/(?:(?:integer|real|logical|complex|character|double\s*precision|type|class)\s*(?:\((?:[^()]|\([^()]*\))*\))?\s*(?:\*\s*\d+\s*)?)/i;
 
-  my (@unit, @stack, $iface);
+  my (@unit, @stack, $iface, $tdef, $cont);
   my $n = 0;
 
   for my $line (split (m/\n/o, $text))
     {
       $n++;
 
-# only lines with a keyword of interest
-      next unless ($line =~ m/call|subroutine|function|program|module|end|interface|block/io);
+# only lines with a keyword of interest, all lines in a type definition
+      next unless ($tdef || ($line =~ m/call|subroutine|function|program|module|end|interface|block/io)
+                         || ($line =~ m/^\s*type\s*[,:\w]/io));
       next if ($line =~ m/^\s*#/o);
 
       if ($args{fixed})
         {
           next if ($line =~ m/^[cC*!dD]/o);
           $line = $line =~ s/^\t//o ? $line : (length ($line) > 6 ? substr ($line, 6) : '');
+        }
+
+# in a type definition, statements continued with & are joined
+
+      if ($tdef)
+        {
+          my $l = &strip_ ($line);
+          $l =~ s/^\s*&//o if ($cont);
+          if ($l =~ s/&\s*$//o)
+            {
+              $cont = [ $cont ? ($cont->[0] . $l, $cont->[1]) : ($l, $n) ];
+              next;
+            }
+          my $at = $n;
+          ($l, $at) = ($cont->[0] . $l, $cont->[1]) if ($cont);
+          undef $cont;
+          for my $s (split (m/;/o, $l))
+            {
+              &tdefline_ ($tdef, $s, $at) or undef $tdef;
+            }
+          next;
         }
 
       for my $s (split (m/;/o, &strip_ ($line)))
@@ -145,6 +174,18 @@ sub units
               next;
             }
           next if ($iface);
+
+# type definition : TYPE X, TYPE :: X, TYPE, attributes :: X; not TYPE (X), TYPE IS (X)
+
+          if (($s =~ m/^\s*type\s*(?:,\s*(.*?))?\s*::\s*(\w+)\s*$/io) || ($s =~ m/^\s*type\s+(?!is\b)()(\w+)\s*$/io))
+            {
+              my ($attr, $name) = ($1, lc ($2));
+              $tdef = { name => $name, line => $n, components => [],
+                        internal => scalar (grep { $_->{name} } @stack) };
+              $tdef->{extends} = [ lc ($1), $n ] if ($attr && ($attr =~ m/\bextends\s*\(\s*(\w+)\s*\)/io));
+              push @$types, $tdef;
+              next;
+            }
 
           if (($s =~ m/^\s*$prefix(subroutine|function)\s+(\w+)/i) || ($s =~ m/^\s*$prefix$type\s*$prefix(function)\s+(\w+)/i)
            || ($s =~ m/^\s*(program)\s+(\w+)/io))
@@ -185,6 +226,41 @@ sub units
     }
 
   return \@unit;
+}
+
+sub tdefline_
+{
+
+# statement $s (line $n) of type definition $t; returns false at END TYPE
+
+  my ($t, $s, $n) = @_;
+
+  return 0 if ($s =~ m/^\s*end\s*type\b/io);
+
+  if ($s =~ m/^\s*contains\b/io)
+    {
+      $t->{bound} = 1;
+      return 1;
+    }
+
+  return 1 if ($t->{bound});
+
+  my ($kind, $type, $rest) = ($s =~ m/^\s*(type|class)\s*\(\s*(\w+)\s*\)(.*)$/io) or return 1;
+
+  my ($attr, $names) = ($rest =~ m/^(.*?)::(.*)$/o) ? ($1, $2) : ('', $rest);
+
+  $attr = ($attr =~ m/\bpointer\b/io) ? 'pointer' : ($attr =~ m/\ballocatable\b/io) ? 'allocatable' : '';
+
+# names : without array specifications and initial values
+
+  1 while ($names =~ s/\([^()]*\)|\[[^\[\]]*\]//go);
+  for (split (m/,/o, $names))
+    {
+      next unless (m/^\s*(\w+)/o);
+      push @{ $t->{components} }, { kind => lc ($kind), type => lc ($type), name => lc ($1), line => $n, attr => $attr };
+    }
+
+  return 1;
 }
 
 
