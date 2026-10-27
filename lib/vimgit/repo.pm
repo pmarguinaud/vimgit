@@ -90,11 +90,11 @@ sub indexhash
 sub uptodate
 {
 
-# true if the current commit has an index
+# true if the current commit has an index, with definitions and calls
 
   my $self = shift;
   my ($hash) = @{ 'vimgit::git'->getHashList (top => $self->{top}) };
-  return $hash && (-f "$self->{IDX}/$hash/windex.db") && (-f "$self->{IDX}/$hash/sindex.db");
+  return $hash && ! grep { ! -f "$self->{IDX}/$hash/$_.db" } qw (windex sindex dindex cindex);
 }
 
 sub build
@@ -113,13 +113,12 @@ sub build
 
   my $dir = "$self->{IDX}/$hash";
 
-  return if ((! $args{force}) && (-f "$dir/windex.db") && (-f "$dir/sindex.db"));
+  return if ((! $args{force}) && $self->uptodate ());
 
   &rmtree ($dir);
   &mkpath ($dir);
 
-  my %windex;
-  my %sindex;
+  my (%windex, %sindex, %dindex, %cindex);
 
 # files listed by git, relative to the top of the repository, except excluded files
 
@@ -127,8 +126,16 @@ sub build
 
   for my $f (grep { ! $x->{$_} } @{ 'vimgit::git'->getFiles (top => $self->{top}) })
     {
-      &vimgit::wanted_windex_ (windex => \%windex, sindex => \%sindex, fhlog  => $fhlog,
-                               root => $self->{top}, file => $f);
+      &vimgit::wanted_windex_ (windex => \%windex, sindex => \%sindex, dindex => \%dindex, cindex => \%cindex,
+                               fhlog  => $fhlog, root => $self->{top}, file => $f);
+    }
+
+  for ([ dindex => \%dindex ], [ cindex => \%cindex ])
+    {
+      my ($name, $h) = @$_;
+      tie (my %H, 'DB_File', "$dir/$name.db", O_RDWR | O_CREAT, 0666, $DB_HASH);
+      &vimgit::cidx ($h, \%H);
+      untie (%H);
     }
 
   tie (my %WINDEX,  'DB_File', "$dir/windex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
@@ -214,11 +221,26 @@ sub cache
   tie (my %WINDEX, 'DB_File', "$self->{IDX}/$hash/windex.db", O_RDONLY);
   tie (my %SINDEX, 'DB_File', "$self->{IDX}/$hash/sindex.db", O_RDONLY);
 
-# windex : word -> { file }; sindex : basename -> { file };
-# findex : files whose stored entries are obsolete; wordsof : file -> words found in it
+# definitions and calls : missing from indexes built before they existed
 
-  my $c = $self->{cache} = { head => $head, hash => $hash, WINDEX => \%WINDEX, SINDEX => \%SINDEX,
-                             windex => {}, sindex => {}, findex => {}, wordsof => {} };
+  my (%DINDEX, %CINDEX);
+  my $defs = (-f "$self->{IDX}/$hash/dindex.db") && (-f "$self->{IDX}/$hash/cindex.db");
+
+  if ($defs)
+    {
+      tie (%DINDEX, 'DB_File', "$self->{IDX}/$hash/dindex.db", O_RDONLY);
+      tie (%CINDEX, 'DB_File', "$self->{IDX}/$hash/cindex.db", O_RDONLY);
+    }
+
+# windex : word -> { file }; sindex : basename -> { file };
+# dindex : name -> { "file:line" }; cindex : "file:line" -> [ name ];
+# findex : files whose stored entries are obsolete; wordsof : file -> words found in it;
+# defsof : file -> names defined in it
+
+  my $c = $self->{cache} = { head => $head, hash => $hash, defs => $defs,
+                             WINDEX => \%WINDEX, SINDEX => \%SINDEX, DINDEX => \%DINDEX, CINDEX => \%CINDEX,
+                             windex => {}, sindex => {}, dindex => {}, cindex => {},
+                             findex => {}, wordsof => {}, defsof => {} };
 
   my $m = 'vimgit::git'->getDiff (top => $self->{top}, hash => $hash);
 
@@ -280,11 +302,24 @@ sub scan
     }
   delete $c->{sindex}{&basename ($f)}{$f};
 
+  for my $name (@{ delete $c->{defsof}{$f} || [] })
+    {
+      for my $key (grep { m/^\Q$f\E:\d+\*?$/ } keys (%{ $c->{dindex}{$name} || {} }))
+        {
+          delete $c->{dindex}{$name}{$key};
+          (my $k = $key) =~ s/\*$//o;
+          delete $c->{cindex}{$k};
+        }
+    }
+
+  delete $c->{callers};
+  delete $c->{nameof};
+
   $c->{findex}{$f} = 1;
 
-  my (%w, %s);
-  &vimgit::wanted_windex_ (windex => \%w, sindex => \%s, fhlog => $self->{fhlog},
-                           root => $self->{top}, file => $f);
+  my (%w, %s, %d, %k);
+  &vimgit::wanted_windex_ (windex => \%w, sindex => \%s, dindex => \%d, cindex => \%k,
+                           fhlog => $self->{fhlog}, root => $self->{top}, file => $f);
 
   for my $w (keys (%w))
     {
@@ -295,6 +330,12 @@ sub scan
     {
       $c->{sindex}{$b}{$f} = 1;
     }
+  for my $name (keys (%d))
+    {
+      $c->{dindex}{$name}{$_} = 1 for (@{ $d{$name} });
+      push @{ $c->{defsof}{$f} }, $name;
+    }
+  $c->{cindex}{$_} = $k{$_} for (keys (%k));
 }
 
 sub update
@@ -356,6 +397,99 @@ sub paths_for_name
            split (m/\s+/o, $c->{SINDEX}{$name} || ''));
 
   return [ map { $self->path ($_) } sort keys (%f) ];
+}
+
+# definitions and calls, from the session cache (refreshed by the caller); a definition is
+# "file:line", file being a repository path; definitions of contained routines end with *
+
+sub file_of_
+{
+  my $key = shift;
+  return $key =~ m/^(.*):\d+\*?$/o ? $1 : $key;
+}
+
+sub definitions
+{
+
+# definitions of routine $name : [ "file:line", ... ] ("file:line*" if contained), sorted
+
+  my ($self, $name) = @_;
+
+  my $c = $self->{cache} or return [];
+
+  my %d = map { ($_, 1) }
+          (keys (%{ $c->{dindex}{$name} || {} }),
+           grep ({ ! $c->{findex}{&file_of_ ($_)} } split (m/\s+/o, $c->{DINDEX}{$name} || '')));
+
+  return [ sort keys (%d) ];
+}
+
+sub callees
+{
+
+# routines called by definition $key : [ name, ... ], in the order of the source
+
+  my ($self, $key) = @_;
+
+  my $c = $self->{cache} or return [];
+
+  return $c->{cindex}{$key} || [] if ($c->{findex}{&file_of_ ($key)});
+
+  return [ split (m/\s+/o, $c->{CINDEX}{$key} || '') ];
+}
+
+sub callers
+{
+
+# definitions calling routine $name : [ "file:line", ... ], sorted; the table of callers is
+# built at the first call
+
+  my ($self, $name) = @_;
+
+  my $c = $self->{cache} or return [];
+
+  unless ($c->{callers})
+    {
+      my %r;
+      while (my ($key, $v) = each (%{ $c->{CINDEX} }))
+        {
+          next if ($c->{findex}{&file_of_ ($key)});
+          $r{$_}{$key} = 1 for (split (m/\s+/o, $v));
+        }
+      while (my ($key, $v) = each (%{ $c->{cindex} }))
+        {
+          $r{$_}{$key} = 1 for (@$v);
+        }
+      $c->{callers} = \%r;
+    }
+
+  return [ sort keys (%{ $c->{callers}{$name} || {} }) ];
+}
+
+sub nameof
+{
+
+# name of the routine of definition $key; the table is built at the first call
+
+  my ($self, $key) = @_;
+
+  my $c = $self->{cache} or return undef;
+
+  unless ($c->{nameof})
+    {
+      my %n;
+      while (my ($name, $v) = each (%{ $c->{DINDEX} }))
+        {
+          $n{s/\*$//or} = $name for (grep { ! $c->{findex}{&file_of_ ($_)} } split (m/\s+/o, $v));
+        }
+      while (my ($name, $v) = each (%{ $c->{dindex} }))
+        {
+          $n{s/\*$//or} = $name for (keys (%$v));
+        }
+      $c->{nameof} = \%n;
+    }
+
+  return $c->{nameof}{$key};
 }
 
 1;

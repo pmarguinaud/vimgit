@@ -81,10 +81,24 @@ sub wanted_windex_
 
   my $text;
 
-  if ($windex)
+  if ($windex || $args{dindex})
     {
       $text = do { my $fh = 'FileHandle'->new ("<$p"); local $/ = undef; <$fh> };
-      &windex_ ($f, $windex, $text);
+    }
+
+  &windex_ ($f, $windex, $text) if ($windex);
+
+# dindex : definitions, name -> [ "file:line" ], "file:line*" for contained routines;
+# cindex : routines called, "file:line" -> [ name ]
+
+  if ($args{dindex} && ('vimgit::lang'->lang ($f) eq 'fortran'))
+    {
+      for my $u (@{ 'vimgit::lang::fortran'->units ($text, fixed => (($f =~ m/\.f$/io) ? 1 : 0)) })
+        {
+          my $key = "$f:$u->{line}";
+          push @{ $args{dindex}{$u->{name}} }, $key . ($u->{internal} ? '*' : '');
+          $args{cindex}{$key} = $u->{calls};
+        }
     }
 }
 
