@@ -142,30 +142,33 @@ it directly.
 `:CT cpg` writes `.vimgit/calltree=/cpg.txt` and opens it:
 
 ```
-CPG                                     ial-source/arpifs/adiab/cpg.F90:1
-  YDCPG_SL2%SET                         % type-bound, not resolved
-  CPG_GP_TENC                           ial-source/arpifs/adiab/cpg_gp_tenc.F90:1
-    ABOR1                               ial-source/scmec/dummy/abor1.F90:1 [+9]
-    ETENC                               ial-source/aladin/coupling/etenc.F90:1 [+1]
-  ...
-      ABOR1                             (see line 4)
+CPG
+├── YDCPG_SL2%SET (type-bound)
+├── CPG_GP_TENC
+│   ├── ABOR1 [+9]
+│   └── ETENC [+1]
+│       ├── ABOR1 (see line 4)
+│       ├── SUESC2R
+│       │   └── ABOR1 (see line 4)
+│       └── GPCOUPL
+...
 ```
 
-- one routine per line, indented by depth, with its definition;
+- one routine per line, drawn with lines; the definitions are kept next to the
+  tree (`cpg.loc`), for `²`;
 - a routine is expanded once; later, `(see line N)`, or `(recursive, see line N)`;
 - `[+n]`: other definitions exist; the one shown is, in this order, in the
   caller's file, in the caller's repository, in a file named after the
   routine, in the first repository of the config; routines contained in
   another file (after `CONTAINS`) come last;
-- `? not found`: no definition in the indexed repositories;
-  `% type-bound, not resolved`: `CALL x%y`, shown but not followed;
+- `(not found)`: no definition in the indexed repositories;
+  `(type-bound)`: `CALL x%y`, shown but not followed;
 - `blacklist` names of the config are left out; `:CT cpg 3` stops at 3 levels
   (`...` marks routines not expanded).
 
 In a tree, `<TAB>` on a name searches it, `²` opens its definition (a list for
-`[+n]`); on a location, both open the file at that line, or go to the line
-given by `see line N`. `zc`, `zo`, `zM`, `zR` fold and unfold (folding by
-indentation). `:CTR rain_ice` shows the routines calling `RAIN_ICE` the same
+`[+n]`); on `(see line N)`, both go to line N. `zc`, `zo`, `zM`, `zR` fold and
+unfold (folding by depth). `:CTR rain_ice` shows the routines calling `RAIN_ICE` the same
 way.
 
 Only `CALL` statements are seen, not function calls; a call whose name is on a

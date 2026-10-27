@@ -41,11 +41,11 @@ one to open.
 
 CALL TREES					*vimgit-calltree*
 
-One routine per line, indented by depth, with its definition. A routine is
-expanded once, then "(see line N)". [+n]: other definitions exist. "? not
-found": no definition in the indexed repositories. "% type-bound": CALL x%y,
-not followed. In a tree, <TAB> on a name searches it, ² opens its definition
-(a list for [+n]); on a location, both open the file, or go to "see line N".
+One routine per line, drawn with lines. A routine is expanded once, then
+"(see line N)". [+n]: other definitions exist. "(not found)": no definition
+in the indexed repositories. "(type-bound)": CALL x%y, not followed. In a
+tree, <TAB> on a name searches it, ² opens its definition (a list for [+n]);
+on "(see line N)", both go to line N.
 zc zo zM zR fold and unfold. blacklist lines of .vimgit/config leave
 routines out.
 
