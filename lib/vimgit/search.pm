@@ -9,7 +9,8 @@ use Data::Dumper;
 
 use base qw (vimgit::file);
 
-# above $GITGREP files, results are produced by git; $WIDTH lines around each match
+# above $GITGREP files, results are produced by git; $WIDTH lines around each match;
+# defaults of the gitgrep and context settings
 
 our $GITGREP = 200;
 our $WIDTH = 2;
@@ -302,7 +303,10 @@ sub pretty_grep
 
 # many files : git reads them, several processes in parallel
 
-  if ((@{ $args{files} } > $GITGREP) && (! $args{nogit}))
+  my $gitgrep = defined ($edtr->{gitgrep}) ? $edtr->{gitgrep} : $GITGREP;
+  my $context = defined ($edtr->{context}) ? $edtr->{context} : $WIDTH;
+
+  if ((@{ $args{files} } > $gitgrep) && (! $args{nogit}))
     {
       my $sets = $edtr->{workspace}->sets (@{ $args{files} });
 
@@ -316,7 +320,7 @@ sub pretty_grep
           return $class->pretty_grep (%args, files => \@f, nogit => 1);
         }
 
-      my $hit = 'vimgit::git'->grepFiles (sets => $sets, word => $word, context => $WIDTH);
+      my $hit = 'vimgit::git'->grepFiles (sets => $sets, word => $word, context => $context);
 
       for my $f (@{ $args{files} })
         {
@@ -347,7 +351,7 @@ sub pretty_grep
       $fhF->close ();
   
 # number of lines before/after match
-      my $width = $WIDTH;
+      my $width = $context;
  
 # have we printed something for this file ?
       my $pr = 0;

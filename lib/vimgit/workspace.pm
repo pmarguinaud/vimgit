@@ -4,6 +4,7 @@ package vimgit::workspace;
 # - a directory holding .vimgit/config, which lists the repositories (repo <mount>),
 #   in the order used for search results;
 # - or the top of a git repository, alone (mounted at '.'), when there is no config
+# ~/.vimgit/config applies to both (vimgit::config)
 
 use strict;
 
@@ -13,6 +14,7 @@ use File::Path;
 use File::Spec;
 use FileHandle;
 
+use vimgit::config;
 use vimgit::git;
 use vimgit::lang;
 use vimgit::repo;
@@ -45,6 +47,13 @@ sub new
 
   my $self = bless { root => $args{root}, repos => [], warnings => [] }, $class;
 
+  my $c = $self->{config} = 'vimgit::config'->load (root => $self->{root});
+
+  $self->warning ($_) for (@{ $c->{warnings} });
+  $self->warning ("$_ uses the old format; vimgit -c prints it in the new one") for (@{ $c->{old} });
+
+  'vimgit::git'->setpath ($c->value ('git'));
+
   if (-f "$self->{root}/.vimgit/config")
     {
       $self->readconfig ();
@@ -53,6 +62,8 @@ sub new
     {
       push @{ $self->{repos} }, 'vimgit::repo'->new (top => $self->{root}, mount => '.');
     }
+
+  $self->settings_ ();
 
   return $self;
 }
@@ -65,93 +76,81 @@ sub warning
 
 sub readconfig
 {
+
+# the repositories listed by the repo settings of .vimgit/config
+
   my $self = shift;
 
-  my $config = "$self->{root}/.vimgit/config";
-  my $fh = 'FileHandle'->new ("<$config") or die ("Cannot read $config");
-
   my %seen; # top -> mount
-  my (@exclude, @index, @blacklist);
 
-  while (my $line = <$fh>)
+  for my $mount (map { 'File::Spec'->canonpath ($_) } $self->{config}->repos ())
     {
-      $line =~ s/#.*//o;
-      next unless ($line =~ m/\S/o);
+      my $dir = "$self->{root}/$mount";
 
-      my ($key, @args) = split (' ', $line);
+      my $top = (-d $dir) ? 'vimgit::git'->getTopDirectory (dir => $dir) : '';
 
-      if (($key eq 'repo') && (@args == 1))
+      if (! $top)
         {
-          my $mount = 'File::Spec'->canonpath ($args[0]);
-          my $dir = "$self->{root}/$mount";
-
-          my $top = (-d $dir) ? 'vimgit::git'->getTopDirectory (dir => $dir) : '';
-
-          if (! $top)
-            {
-              $self->warning ("$mount is not a git repository; ignored");
-            }
-          elsif (&Cwd::abs_path ($dir) ne &Cwd::abs_path ($top))
-            {
-              $self->warning ("$mount is not the top of a git repository; ignored");
-            }
-          elsif (my $other = $seen{&Cwd::abs_path ($top)})
-            {
-              $self->warning ("$mount is the same repository as $other; ignored");
-            }
-          else
-            {
-              $seen{&Cwd::abs_path ($top)} = $mount;
-              push @{ $self->{repos} }, 'vimgit::repo'->new (top => &Cwd::abs_path ($top), mount => $mount);
-            }
+          $self->warning ("$mount is not a git repository; ignored");
         }
-      elsif (($key eq 'exclude') && (@args == 2))
+      elsif (&Cwd::abs_path ($dir) ne &Cwd::abs_path ($top))
         {
-          push @exclude, [ @args ];
+          $self->warning ("$mount is not the top of a git repository; ignored");
         }
-      elsif (($key eq 'index') && (@args >= 1))
+      elsif (my $other = $seen{&Cwd::abs_path ($top)})
         {
-          push @index, @args;
-        }
-      elsif (($key eq 'blacklist') && (@args >= 1))
-        {
-          push @blacklist, @args;
+          $self->warning ("$mount is the same repository as $other; ignored");
         }
       else
         {
-          chomp ($line);
-          $self->warning (".vimgit/config: cannot understand `$line'");
+          $seen{&Cwd::abs_path ($top)} = $mount;
+          push @{ $self->{repos} }, 'vimgit::repo'->new (top => &Cwd::abs_path ($top), mount => $mount);
         }
     }
 
-# exclude <repo> <pattern> : gitignore pattern, relative to the top of the repository
+  $self->warning (".vimgit/config lists no repository") unless (@{ $self->{repos} });
+}
 
-  for (@exclude)
+sub settings_
+{
+
+# settings applying to the repositories : exclude, index, blacklist, keep
+
+  my $self = shift;
+
+  my $c = $self->{config};
+
+# exclude <repo> => <pattern> : gitignore pattern, relative to the top of the repository;
+# <repo> is a mount name; for a workspace made of one repository, the name of its directory
+
+  for my $x (@{ $c->{exclude} })
     {
-      my ($mount, $pattern) = @$_;
-      if (my $repo = $self->repo ('File::Spec'->canonpath ($mount)))
+      my ($mount, $pattern, $origin, $scope) = @$x;
+      my ($repo) = grep { ($_->{mount} eq 'File::Spec'->canonpath ($mount))
+                       || (($_->{mount} eq '.') && (&basename ($_->{top}) eq $mount)) } $self->repos ();
+      if ($repo)
         {
           push @{ $repo->{exclude} }, $pattern;
         }
-      else
+      elsif ($scope eq 'workspace')
         {
-          $self->warning (".vimgit/config: exclude $mount $pattern: $mount is not a repository of the workspace");
+          $self->warning ("$origin: exclude $mount: $mount is not a repository of the workspace");
         }
     }
 
 # index <glob> ... : names of the files to index, instead of the default list
 
-  'vimgit::lang'->setindexed (@index) if (@index);
+  'vimgit::lang'->setindexed ($c->indexed ()) if ($c->indexed ());
 
 # blacklist <name> ... : routines left out of call trees; any case, * for any characters
 
-  if (@blacklist)
+  if (my @blacklist = $c->blacklist ())
     {
       my $re = join ('|', map { (my $g = quotemeta (lc ($_))) =~ s/\\\*/\\w*/go; $g } @blacklist);
       $self->{blacklist} = qr/^(?:$re)$/i;
     }
 
-  $self->warning (".vimgit/config lists no repository") unless (@{ $self->{repos} });
+  $_->{keep} = $c->value ('keep') for ($self->repos ());
 }
 
 sub discover
@@ -191,23 +190,28 @@ sub discover
   my $fh = 'FileHandle'->new (">$dir/.vimgit/config") or die ("Cannot write $dir/.vimgit/config");
 
   $fh->print (<< 'EOF');
-# vimgit workspace, written by vimgit; edit it.
+# vimgit workspace, written by vimgit; edit it. It is Perl, read after
+# ~/.vimgit/config, whose settings it can add to or override.
 #
-# repo <path>              a git repository to search; results follow the order
-#                          of these lines; repositories not listed are ignored
-# exclude <repo> <pattern> files of <repo> not to index (gitignore pattern,
-#                          relative to the top of <repo>), e.g. exclude fiat tests/**
-# index <glob> ...         names of the files to index, any case, instead of
-#                          *.f90 *.f *.c *.cc *.cpp *.h *.hpp
-# blacklist <name> ...     routines left out of call trees (:CT, :CTR), any case,
-#                          * for any characters, e.g. blacklist DR_HOOK MPL_*
+# repo qw (<path> ...);              git repositories to search; results follow
+#                                    their order; repositories not listed are ignored
+# exclude <repo> => '<pattern>';     files of <repo> not to index (gitignore pattern,
+#                                    relative to the top of <repo>), e.g.
+#                                    exclude fiat => 'tests/**'; '-<pattern>' removes
+#                                    a pattern from ~/.vimgit/config
+# index qw (<glob> ...);             names of the files to index, any case, instead of
+#                                    *.f90 *.f *.c *.cc *.cpp *.h *.hpp
+# blacklist qw (<name> ...);         routines left out of call trees (:CT, :CTR), any
+#                                    case, * for any characters, e.g. MPL_*;
+#                                    '-<name>' removes a name, '-' all of them
+# git, vim, jobs, results, gitgrep, context, keep, depth, key : see README.md
 #
 # A .vimgitignore file (gitignore syntax) in any directory of a repository also
-# excludes files. After changing exclusions or index, run vimgit -I.
+# excludes files. vimgit -c prints the settings in use and where they come from.
 
 EOF
-  $fh->print ("repo $_\n") for (@mount);
-  $fh->print ("\nblacklist DR_HOOK\n");
+  $fh->print ("repo qw (" . join (' ', @mount) . ");\n");
+  $fh->print ("\nblacklist 'DR_HOOK';\n") unless ('vimgit::config'->load ()->blacklist ());
 
   return scalar (@mount);
 }

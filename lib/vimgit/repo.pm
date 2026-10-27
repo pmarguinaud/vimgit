@@ -8,6 +8,7 @@ use strict;
 
 use DB_File;
 use Fcntl qw (O_RDONLY O_RDWR O_CREAT);
+use Digest::MD5 qw (md5_hex);
 use File::Basename;
 use File::Path;
 use FileHandle;
@@ -30,6 +31,45 @@ sub new
   $self->{IDX}    = "$self->{gitdir}/vimgit";
 
   return $self;
+}
+
+# version of the index format; a new version calls for new indexes
+
+our $FORMAT = 2;
+
+sub digest
+{
+
+# digest of the settings an index is built with : the format, the names of the files to
+# index, the exclude patterns of the repository
+
+  my $self = shift;
+  return $self->{digest} ||= substr (&md5_hex (join ("\n", "format $FORMAT", 'vimgit::lang'->indexedglobs (),
+                                                      '--', @{ $self->{exclude} || [] })), 0, 12);
+}
+
+sub dir_
+{
+
+# directory of the index of commit $hash, for the current settings
+
+  my ($self, $hash) = @_;
+  return "$self->{IDX}/$hash-" . $self->digest ();
+}
+
+sub othersettings
+{
+
+# true if one of the last commits has an index built with other settings, or by an older
+# version of vimgit
+
+  my $self = shift;
+  my $digest = $self->digest ();
+  for my $hash (@{ 'vimgit::git'->getHashList (top => $self->{top}) })
+    {
+      return 1 if (grep { (m/-([0-9a-f]+)$/o ? $1 : '') ne $digest } glob ("$self->{IDX}/$hash*"));
+    }
+  return 0;
 }
 
 sub name
@@ -81,7 +121,7 @@ sub indexhash
 
   for my $hash (@$hashlist)
     {
-      return $hash if (-f "$self->{IDX}/$hash/sindex.db");
+      return $hash if (-f $self->dir_ ($hash) . "/sindex.db");
     }
 
   return undef;
@@ -94,7 +134,7 @@ sub uptodate
 
   my $self = shift;
   my ($hash) = @{ 'vimgit::git'->getHashList (top => $self->{top}) };
-  return $hash && ! grep { ! -f "$self->{IDX}/$hash/$_.db" } qw (windex sindex dindex cindex tindex tcindex);
+  return $hash && ! grep { ! -f $self->dir_ ($hash) . "/$_.db" } qw (windex sindex dindex cindex tindex tcindex);
 }
 
 sub build
@@ -111,7 +151,7 @@ sub build
 
   my ($hash) = @$hashlist;
 
-  my $dir = "$self->{IDX}/$hash";
+  my $dir = $self->dir_ ($hash);
 
   return if ((! $args{force}) && $self->uptodate ());
 
@@ -153,19 +193,41 @@ sub build
 sub prune
 {
 
-# keep the $keep most recent indexes
+# keep the $self->{keep} (3) most recent indexes for the current settings, the most recent
+# for other settings (another workspace sharing the repository) if less than 30 days old;
+# remove indexes without a digest (older versions of vimgit)
 
-  my ($self, $keep) = @_;
+  my $self = shift;
 
-  $keep ||= 3;
+  my $keep = $self->{keep} || 3;
+  my $digest = $self->digest ();
 
   opendir (my $dh, $self->{IDX}) or return;
-  my @hash = grep { m/^[0-9a-f]{40}$/o && -d "$self->{IDX}/$_" } readdir ($dh);
+  my @dir = grep { m/^[0-9a-f]{40}(?:-[0-9a-f]+)?$/o && -d "$self->{IDX}/$_" } readdir ($dh);
   closedir ($dh);
 
-  @hash = sort { (stat ("$self->{IDX}/$b"))[9] <=> (stat ("$self->{IDX}/$a"))[9] } @hash;
+  my %mtime = map { ($_, (stat ("$self->{IDX}/$_"))[9]) } @dir;
+  @dir = sort { $mtime{$b} <=> $mtime{$a} } @dir;
 
-  &rmtree ("$self->{IDX}/$_") for (@hash[$keep .. $#hash]);
+  my (%n, @rm);
+  for my $d (@dir)
+    {
+      my ($dg) = ($d =~ m/-([0-9a-f]+)$/o);
+      if (! $dg)
+        {
+          push @rm, $d;
+        }
+      elsif ($dg eq $digest)
+        {
+          push @rm, $d if (++$n{$dg} > $keep);
+        }
+      else
+        {
+          push @rm, $d if ((++$n{$dg} > 1) || ($mtime{$d} < time () - 30 * 86400));
+        }
+    }
+
+  &rmtree ("$self->{IDX}/$_") for (@rm);
 }
 
 sub head
@@ -219,27 +281,29 @@ sub cache
   my $hash = $self->indexhash ()
     or return undef;
 
-  tie (my %WINDEX, 'DB_File', "$self->{IDX}/$hash/windex.db", O_RDONLY);
-  tie (my %SINDEX, 'DB_File', "$self->{IDX}/$hash/sindex.db", O_RDONLY);
+  my $dir = $self->dir_ ($hash);
+
+  tie (my %WINDEX, 'DB_File', "$dir/windex.db", O_RDONLY);
+  tie (my %SINDEX, 'DB_File', "$dir/sindex.db", O_RDONLY);
 
 # definitions and calls : missing from indexes built before they existed
 
   my (%DINDEX, %CINDEX);
-  my $defs = (-f "$self->{IDX}/$hash/dindex.db") && (-f "$self->{IDX}/$hash/cindex.db");
+  my $defs = (-f "$dir/dindex.db") && (-f "$dir/cindex.db");
 
   if ($defs)
     {
-      tie (%DINDEX, 'DB_File', "$self->{IDX}/$hash/dindex.db", O_RDONLY);
-      tie (%CINDEX, 'DB_File', "$self->{IDX}/$hash/cindex.db", O_RDONLY);
+      tie (%DINDEX, 'DB_File', "$dir/dindex.db", O_RDONLY);
+      tie (%CINDEX, 'DB_File', "$dir/cindex.db", O_RDONLY);
     }
 
   my (%TINDEX, %TCINDEX);
-  my $types = (-f "$self->{IDX}/$hash/tindex.db") && (-f "$self->{IDX}/$hash/tcindex.db");
+  my $types = (-f "$dir/tindex.db") && (-f "$dir/tcindex.db");
 
   if ($types)
     {
-      tie (%TINDEX, 'DB_File', "$self->{IDX}/$hash/tindex.db", O_RDONLY);
-      tie (%TCINDEX, 'DB_File', "$self->{IDX}/$hash/tcindex.db", O_RDONLY);
+      tie (%TINDEX, 'DB_File', "$dir/tindex.db", O_RDONLY);
+      tie (%TCINDEX, 'DB_File', "$dir/tcindex.db", O_RDONLY);
     }
 
 # windex : word -> { file }; sindex : basename -> { file };

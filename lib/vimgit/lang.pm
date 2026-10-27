@@ -22,8 +22,18 @@ sub lang
 # names of indexed files : globs on the file name, any case; 
 # an index line in .vimgit/config replaces them
 
-my @INDEXED = qw (*.f90 *.f *.c *.cc *.cpp *.h *.hpp);
+my @INDEXED = &defaultindexed ();
 my $INDEXED;
+
+sub defaultindexed
+{
+  return qw (*.f90 *.f *.c *.cc *.cpp *.h *.hpp);
+}
+
+sub indexedglobs
+{
+  return @INDEXED;
+}
 
 sub setindexed
 {

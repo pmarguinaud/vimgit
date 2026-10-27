@@ -3,13 +3,19 @@ package vimgit::git;
 use strict;
 use Data::Dumper;
 
-# git to run : $GITVIMGIT, or /bin/git
+# git to run : the git setting of the configuration (vimgit::config)
 
-my $GIT = $ENV{GITVIMGIT} || '/bin/git';
+my $GIT = '/bin/git';
 
 sub path
 {
   return $GIT;
+}
+
+sub setpath
+{
+  my ($class, $path) = @_;
+  $GIT = $path if ($path);
 }
 
 sub run
