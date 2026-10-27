@@ -23,6 +23,11 @@ COMMANDS					*vimgit-commands*
 :E file		open a file: name, path, file:line, file:line.column
 :R		scan again the files changed since the index was built
 		(after changes made outside vim)
+:CT [name [depth]]
+		call tree of a routine (word under the cursor without a
+		name); see |vimgit-calltree|
+:CTR [name [depth]]
+		tree of the routines calling it
 :T align_args	align the declarations of dummy arguments (needs fxtran)
 :T align_use	clean up and align USE statements (needs fxtran)
 :C		make the current file a single link (done before writes)
@@ -34,12 +39,23 @@ Results show 200 files at a time; <TAB> on the <<<< >>>> line at the end
 shows the next ones. When a name matches several files, vimgit asks which
 one to open.
 
+CALL TREES					*vimgit-calltree*
+
+One routine per line, indented by depth, with its definition. A routine is
+expanded once, then "(see line N)". [+n]: other definitions exist. "? not
+found": no definition in the indexed repositories. "% type-bound": CALL x%y,
+not followed. In a tree, <TAB> on a name searches it, ² opens its definition
+(a list for [+n]); on a location, both open the file, or go to "see line N".
+zc zo zM zR fold and unfold. blacklist lines of .vimgit/config leave
+routines out.
+
 WORKSPACE					*vimgit-workspace*
 
 vimgit works in the directory holding .vimgit/config (looking upward),
 otherwise in the current git repository. .vimgit/config lists the
-repositories (repo <path>), files not to index (exclude <repo> <pattern>)
-and the names of files to index (index <glob> ...). .vimgitignore files in
+repositories (repo <path>), files not to index (exclude <repo> <pattern>),
+the names of files to index (index <glob> ...) and routines left out of call
+trees (blacklist <name> ...). .vimgitignore files in
 repositories also exclude files. Indexes are built by vimgit -i (missing
 ones) or vimgit -I (all, again). vimgit runs /bin/git, or $GITVIMGIT if set.
 See README.md in the vimgit directory.
@@ -291,6 +307,8 @@ for my $note (@NOTE)
 $hCOM->print (<< 'EOF');
 command! -nargs=1 F      :perl $::EDITOR->FIND (word => "<args>")
 command! -nargs=1 FR     :perl $::EDITOR->FIND (word => "<args>", current => 1)
+command! -nargs=* CT     :perl $::EDITOR->CALLTREE ("<args>")
+command! -nargs=* CTR    :perl $::EDITOR->CALLTREE ("<args>", callers => 1)
 command! -nargs=0 C      :perl $::EDITOR->COMMIT ()
 command! -nargs=1 E      :perl $::EDITOR->EDIT ("<args>")
 command! -nargs=* T      :perl $::EDITOR->TRANSFORM ("<args>")

@@ -71,7 +71,7 @@ sub readconfig
   my $fh = 'FileHandle'->new ("<$config") or die ("Cannot read $config");
 
   my %seen; # top -> mount
-  my (@exclude, @index);
+  my (@exclude, @index, @blacklist);
 
   while (my $line = <$fh>)
     {
@@ -113,6 +113,10 @@ sub readconfig
         {
           push @index, @args;
         }
+      elsif (($key eq 'blacklist') && (@args >= 1))
+        {
+          push @blacklist, @args;
+        }
       else
         {
           chomp ($line);
@@ -138,6 +142,14 @@ sub readconfig
 # index <glob> ... : names of the files to index, instead of the default list
 
   'vimgit::lang'->setindexed (@index) if (@index);
+
+# blacklist <name> ... : routines left out of call trees; any case, * for any characters
+
+  if (@blacklist)
+    {
+      my $re = join ('|', map { (my $g = quotemeta (lc ($_))) =~ s/\\\*/\\w*/go; $g } @blacklist);
+      $self->{blacklist} = qr/^(?:$re)$/i;
+    }
 
   $self->warning (".vimgit/config lists no repository") unless (@{ $self->{repos} });
 }
@@ -187,12 +199,15 @@ sub discover
 #                          relative to the top of <repo>), e.g. exclude fiat tests/**
 # index <glob> ...         names of the files to index, any case, instead of
 #                          *.f90 *.f *.c *.cc *.cpp *.h *.hpp
+# blacklist <name> ...     routines left out of call trees (:CT, :CTR), any case,
+#                          * for any characters, e.g. blacklist DR_HOOK MPL_*
 #
 # A .vimgitignore file (gitignore syntax) in any directory of a repository also
 # excludes files. After changing exclusions or index, run vimgit -I.
 
 EOF
   $fh->print ("repo $_\n") for (@mount);
+  $fh->print ("\nblacklist DR_HOOK\n");
 
   return scalar (@mount);
 }
@@ -293,6 +308,94 @@ sub paths_for_name
 
   my ($self, $name, %args) = @_;
   return $self->lookup ('paths_for_name', $name, %args);
+}
+
+# definitions and calls; a definition is { repo, key ("file:line", repository path), name,
+# file (workspace path), line, internal (contained routine) }
+
+sub refresh
+{
+
+# check the session caches of the repositories (HEAD moved, ...); returns the number of
+# repositories whose index has definitions and calls
+
+  my $self = shift;
+  return scalar (grep { my $c = $_->cache (); $c && $c->{defs} } $self->repos ());
+}
+
+sub blacklisted
+{
+  my ($self, $name) = @_;
+  return $self->{blacklist} && ($name =~ $self->{blacklist});
+}
+
+sub definition_
+{
+  my ($self, $repo, $key, $name) = @_;
+  my ($rel, $line, $internal) = ($key =~ m/^(.*):(\d+)(\*?)$/o);
+  return { repo => $repo, key => "$rel:$line", name => $name, file => $repo->path ($rel), line => $line,
+           internal => ($internal ? 1 : 0) };
+}
+
+sub definitions
+{
+
+# definitions of routine $name in the indexed repositories (after refresh), the most likely
+# first : in the file of $args{caller}, in its repository, in a file named after the routine,
+# in the first repository of the config; routines contained in another file come last (they
+# cannot be called from there)
+
+  my ($self, $name, %args) = @_;
+
+  $name = lc ($name);
+
+  my @repo = $self->repos ();
+  my %rank = map { ($repo[$_]{mount}, $_) } (0 .. $#repo);
+
+  my @d = map { my $repo = $_; map { $self->definition_ ($repo, $_, $name) } @{ $repo->definitions ($name) } } @repo;
+
+  my $caller = $args{caller};
+
+  my $score = sub
+  {
+    my $d = shift;
+    (my $base = lc (&basename ($d->{file}))) =~ s/\..*//o;
+    my $samefile = $caller && ($d->{file} eq $caller->{file});
+    return ($samefile ? 0 : 1,
+            (($d->{internal} && ! $samefile) ? 1 : 0),
+            ($caller && ($d->{repo} == $caller->{repo})) ? 0 : 1,
+            ($base eq $name) ? 0 : 1,
+            $rank{$d->{repo}{mount}});
+  };
+
+  my %s = map { ($_, [ $score->($d[$_]) ]) } (0 .. $#d);
+
+  my @i = sort { my ($x, $y) = ($s{$a}, $s{$b});
+                 ($x->[0] <=> $y->[0]) || ($x->[1] <=> $y->[1]) || ($x->[2] <=> $y->[2])
+              || ($x->[3] <=> $y->[3]) || ($x->[4] <=> $y->[4]) || ($a <=> $b) } (0 .. $#d);
+
+  return @d[@i];
+}
+
+sub callees
+{
+
+# names of the routines called by definition $d
+
+  my ($self, $d) = @_;
+  return @{ $d->{repo}->callees ($d->{key}) };
+}
+
+sub callers
+{
+
+# definitions calling routine $name, repositories in config order
+
+  my ($self, $name) = @_;
+
+  $name = lc ($name);
+
+  return map { my $repo = $_; map { $self->definition_ ($repo, $_, $repo->nameof ($_)) } @{ $repo->callers ($name) } } $self->repos ();
 }
 
 1;
