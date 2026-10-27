@@ -1,5 +1,7 @@
 # vimgit
 
+![vimgit: vim with a word index of your git repositories](vimgit-social.svg)
+
 vimgit is vim with a word index of your source code. In one keystroke it finds
 every file using a word, the definition of a routine, a module or a type, or a
 file from its name, across one or several git repositories. It was written for
@@ -74,6 +76,9 @@ Settings come from two files, both optional, both Perl:
 1. `~/.vimgit/config`, your personal settings, for every workspace;
 2. the `.vimgit/config` of the workspace, read next: it adds to the personal
    settings or overrides them.
+
+[`config.sample`](config.sample) lists every setting with its default and a
+comment: copy it to `~/.vimgit/config` to start.
 
 ```perl
 # ~/.vimgit/config

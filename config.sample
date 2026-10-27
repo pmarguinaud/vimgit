@@ -1,0 +1,72 @@
+# Sample vimgit configuration: copy it to ~/.vimgit/config and edit it.
+#
+# This file is Perl. ~/.vimgit/config holds your personal settings; the
+# .vimgit/config of a workspace is read next, and adds to them or overrides
+# them. vimgit -c (or :CONFIG in vim) shows the settings in use, and the file
+# and line each one comes from.
+#
+# Single values: the last file read wins. Lists (blacklist, index, exclude):
+# each file adds to them; '-name' removes an entry, '-' empties the list.
+
+# --- programs ------------------------------------------------------------
+
+# git to run (default /bin/git)
+# git '/home/me/install/git/bin/git';
+
+# vim to run (default vim); for gvim, use vimgit -g
+# vim 'vim';
+
+# --- indexing ------------------------------------------------------------
+
+# indexes built at the same time by vimgit -i (default 4; -j wins)
+jobs 4;
+
+# indexes kept per repository (default 3)
+keep 3;
+
+# names of the files to index, any case; the first index line replaces the
+# default list (*.f90 *.f *.c *.cc *.cpp *.h *.hpp)
+# index qw (*.F90 *.F *.h *.c);
+
+# files of a repository not to index: gitignore patterns, relative to the top
+# of the repository. Here, <repo> is a mount name: the pattern applies to every
+# workspace with a repository mounted under that name.
+# exclude fiat   => 'src/fiat/mpl/internal_deprecated/**';
+# exclude surfex => 'src/LIB/XRD44/**';
+
+# After changing index or exclude, the index is missing: run vimgit -i.
+
+# --- searches ------------------------------------------------------------
+
+# results shown per page (default 200)
+results 200;
+
+# above this many files, git searches them (default 200)
+gitgrep 200;
+
+# lines shown around each match (default 2)
+context 2;
+
+# --- call trees and type trees -------------------------------------------
+
+# routines left out of call trees (:CT, :CTR); any case, * for any characters
+blacklist qw (DR_HOOK);
+
+# default depth of :CT, :CTR, :TT, :TTR (default: no limit); a depth on the
+# command line (:CT cpg 3) wins
+# depth 6;
+
+# --- keys ----------------------------------------------------------------
+
+# the keys of an action, replacing its default keys; actions and defaults:
+#   search            <TAB>       search the word under the cursor
+#   search_window     <S-TAB>     same, in a new window
+#   definition        ² ` œ       go to the definition under the cursor
+#   definition_window <C-²>       same, in a new window
+#   back              <BS>        go back
+# key definition => '²', '<F2>';
+
+# --- Perl ----------------------------------------------------------------
+
+# Conditions and computed values work, e.g. a git of your own when it exists:
+# git "$ENV{HOME}/install/git/bin/git" if (-x "$ENV{HOME}/install/git/bin/git");
