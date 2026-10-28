@@ -19,6 +19,11 @@ sub new
       use vimgit::calltree;
       $self = 'vimgit::calltree'->new (%args);
     }
+  elsif ($args{file} =~ m/argtrace=/o)
+    {
+      use vimgit::argtrace;
+      $self = 'vimgit::argtrace'->new (%args);
+    }
   elsif ($args{file} =~ m/typetree=/o)
     {
       use vimgit::typetree;
@@ -48,7 +53,7 @@ sub issource
     {
       $file = $self->{file};
     }
-  return ! ($file =~ m/(?:search|calltree|typetree)=/o);
+  return ! ($file =~ m/(?:search|calltree|typetree|argtrace)=/o);
 }
 
 sub issearch

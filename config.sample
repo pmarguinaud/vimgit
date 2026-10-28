@@ -56,6 +56,15 @@ blacklist qw (DR_HOOK);
 # command line (:CT cpg 3) wins
 # depth 6;
 
+# --- argument traces -----------------------------------------------------
+
+# default depth of :AT (default 5); :AT X 10 goes 10 levels up
+atdepth 5;
+
+# fxtran binary, for :AT on fixed form files (free form files use the
+# fxtran Perl module)
+# fxtran '/home/me/fxtran/bin/fxtran';
+
 # --- keys ----------------------------------------------------------------
 
 # the keys of an action, replacing its default keys; actions and defaults:

@@ -337,6 +337,76 @@ sub CALLTREE
   $self->reportbug ($@);
 }
 
+sub ARGTRACE
+{
+
+# :AT [name] [depth] [follow] : the call sequences leading to dummy argument name (the word
+# under the cursor without a name) of the routine around the cursor; the words in any order
+
+  my ($self, $argstr) = @_;
+
+  eval
+    {
+      my ($name, $depth, $follow);
+      for my $w (split (' ', $argstr || ''))
+        {
+          if ($w =~ m/^\d+$/o)
+            {
+              $depth = $w;
+            }
+          elsif (lc ($w) eq 'follow')
+            {
+              $follow = 1;
+            }
+          else
+            {
+              $name = $w;
+            }
+        }
+
+      my ($row, $col) = $self->getcurwin ()->Cursor ();
+
+      unless (defined ($name))
+        {
+          my ($line) = $self->getcurbuf ()->Get ($row);
+          ($name) = &vimgit::tools::findword ($col, $line);
+        }
+
+      unless (defined ($name) && ($name =~ m/^\w+$/o))
+        {
+          &VIM::Msg (sprintf ("`%s' is not a dummy argument name", defined ($name) ? $name : ''));
+          return;
+        }
+
+# the current file, as a workspace path
+
+      no warnings;
+      my $f = 'File::Spec'->canonpath ('File::Spec'->abs2rel ($main::curbuf->Name ()));
+      my ($repo, $rel) = $self->{workspace}->repo_of ($f);
+      unless ($repo)
+        {
+          &VIM::Msg ('The current buffer is not in a repository of the workspace');
+          return;
+        }
+
+      return $self->argtrace (file => $repo->path ($rel), line => $row, name => $name,
+                              depth => (defined ($depth) ? $depth : $self->{atdepth} || 5), follow => $follow, hist => 1);
+    };
+
+  $self->reportbug ($@);
+}
+
+sub argtrace
+{
+  my ($self, %args) = @_;
+
+  $self->{history}->push ($self->getcurwin (), 'argtrace', %args)
+    if ($args{hist});
+
+  use vimgit::argtrace;
+  return 'vimgit::argtrace'->create (editor => $self, %args);
+}
+
 sub CONFIG
 {
 

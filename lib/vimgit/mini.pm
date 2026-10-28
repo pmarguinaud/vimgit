@@ -35,6 +35,8 @@ sub new
       $self->{gitgrep} = $c->value ('gitgrep');
       $self->{context} = $c->value ('context');
       $self->{depth}   = $c->value ('depth');
+      $self->{atdepth} = $c->value ('atdepth');
+      $vimgit::fxparse::FXTRAN = $c->value ('fxtran');
     }
 
   return $self;

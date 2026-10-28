@@ -22,9 +22,9 @@ use FileHandle;
 # single values and their defaults
 
 our %DEFAULT = (git => '/bin/git', vim => 'vim', jobs => 4, results => 200, gitgrep => 200,
-                context => 2, keep => 3, depth => undef);
+                context => 2, keep => 3, depth => undef, atdepth => 5, fxtran => 'fxtran');
 
-our @VALUES = qw (git vim jobs results gitgrep context keep depth);
+our @VALUES = qw (git vim jobs results gitgrep context keep depth atdepth fxtran);
 
 # actions and their default keys
 

@@ -91,6 +91,8 @@ gitgrep   200;                  # above this many files, git searches
 context   2;                    # lines shown around a match
 keep      3;                    # indexes kept per repository
 depth     6;                    # default depth of :CT :CTR :TT :TTR
+atdepth   5;                    # default depth of :AT
+fxtran    'fxtran';             # fxtran binary, for :AT on fixed form files
 
 blacklist qw (DR_HOOK MPL_*);   # routines left out of call trees (any case, * allowed)
 exclude   fiat => 'src/fiat/mpl/internal_deprecated/**';
@@ -235,6 +237,7 @@ readwrite 'modi';                                # the others open read-only
 | `:CTR [name [depth]]` | tree of the routines calling it |
 | `:TT [name [depth]]` | type tree of a derived type (the word under the cursor without a name): the types of its components, and so on |
 | `:TTR [name [depth]]` | tree of the types using it |
+| `:AT [name] [depth] [follow]` | the call sequences passing a variable as dummy argument `name` (the word under the cursor without a name) of the routine around the cursor |
 | `:T align_args`, `:T align_use` | align the declarations of dummy arguments; clean up and align `USE` statements (needs fxtran) |
 | `:C` | make the current file a single link (done before each write) |
 | `:CONFIG` | show the settings in use, and where they come from |
@@ -327,3 +330,56 @@ CLASS_SUPERGOM%MODEL_OBJ_PTR ──┐
 ...                                                ├──── TCST [+1]
 ```
 
+## Argument traces
+
+`:AT X`, in routine `BAR`, lists the calls that pass a variable as dummy
+argument `X`, then the calls passing that variable to their caller, and so
+on, up to the declaration of the first variable that is not a dummy
+argument:
+
+```
+:AT X in BAR (bar.F90:1), depth 5
+
+[1] foo1.F90                            FOO1 passes Y as X of BAR
+
+     4 | Z = 0
+     5 | CALL ABC (Z)
+     6 | CALL BAR (Y)
+       |           ^
+     7 | Z = Y + 1
+     8 | CALL DEF (Z)
+
+[1.1] foo2.F90                          FOO2 passes Y2 (I) as Y of FOO1
+...
+[1.1.1] foo2.F90                        Y2 is local to FOO2
+
+     2 | INTEGER :: I
+     3 | REAL :: Y2 (10)
+       |         ^^
+     4 | REAL :: ZW
+
+[2] foo6.F90                            FOO6 passes XM as X of BAR
+
+[2.1] foo6.F90                          XM comes from module YOMX
+```
+
+- one block per call, depth-first, numbered after its place in the sequences;
+  the `CALL` statement with 2 statements before and after it, carets under
+  the argument; `see [1.1]` for a call already shown;
+- arguments are matched by position or keyword; `ASSOCIATE` names are
+  replaced by their selector; a dummy argument of the host counts for a
+  contained routine, whose calls are searched in its host;
+- a chain ends with a local variable (pointers included), a module
+  (`USE ... ONLY`, a variable of the module, or one of the modules used
+  without `ONLY`), a literal, an expression, or an optional argument not
+  passed;
+- a component of a dummy argument (`YD%T%T0`) stops the chain; `:AT X follow`
+  goes on with `YD`;
+- `:AT X 10` goes 10 levels up (the `atdepth` setting, 5 by default);
+- `<TAB>` or `²` on a line opens the file there; on a `see` line, they go to
+  the block.
+
+Callers come from the call index; the files are parsed by fxtran (the
+`fxtran` Perl module, and the `fxtran` binary for fixed form files), once
+per session. Type-bound calls, generic interfaces and function arguments
+are not followed.
