@@ -131,6 +131,12 @@ sub create
   &VIM::DoCommand ("silent view $filename");
   &VIM::DoCommand ('setlocal nowrap');
 
+# the carets are the search pattern, highlighted (n, N go from one to the next); only those of
+# the lines under a statement, not a ^ in the source
+
+  &VIM::DoCommand (q(let @/ = '^ \+| *\zs\^\+'));
+  &VIM::DoCommand ('set hlsearch');
+
   &VIM::Msg (sprintf ("%s: %d calls", $self->{title}, $self->{blocks}));
 
   return $class->new (file => $filename);
