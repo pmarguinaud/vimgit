@@ -341,9 +341,11 @@ sub ARGTRACE
 {
 
 # :AT [name] [depth] [follow] : the call sequences leading to dummy argument name (the word
-# under the cursor without a name) of the routine around the cursor; the words in any order
+# under the cursor without a name) of the routine around the cursor; the words in any order;
+# :ATD [name] [depth] (down => 1) : the calls passing variable or component path name (X%Y)
+# down the call tree, the path under the cursor without a name
 
-  my ($self, $argstr) = @_;
+  my ($self, $argstr, %opt) = @_;
 
   eval
     {
@@ -369,12 +371,12 @@ sub ARGTRACE
       unless (defined ($name))
         {
           my ($line) = $self->getcurbuf ()->Get ($row);
-          ($name) = &vimgit::tools::findword ($col, $line);
+          ($name) = $opt{down} ? &path_at_ ($col, $line) : &vimgit::tools::findword ($col, $line);
         }
 
-      unless (defined ($name) && ($name =~ m/^\w+$/o))
+      unless (defined ($name) && ($name =~ ($opt{down} ? qr/^\w+(?:\s*%\s*\w+)*$/o : qr/^\w+$/o)))
         {
-          &VIM::Msg (sprintf ("`%s' is not a dummy argument name", defined ($name) ? $name : ''));
+          &VIM::Msg (sprintf ("`%s' is not a %s", (defined ($name) ? $name : ''), ($opt{down} ? 'variable' : 'dummy argument name')));
           return;
         }
 
@@ -389,11 +391,57 @@ sub ARGTRACE
           return;
         }
 
-      return $self->argtrace (file => $repo->path ($rel), line => $row, name => $name,
+      return $self->argtrace (file => $repo->path ($rel), line => $row, name => $name, down => $opt{down},
                               depth => (defined ($depth) ? $depth : $self->{atdepth} || 5), follow => $follow, hist => 1);
     };
 
   $self->reportbug ($@);
+}
+
+sub path_at_
+{
+
+# the variable or component path at column $col of $line : on X in X%Y%Z, X; on Y, X%Y;
+# subscripts left out. From the word under the cursor, leftward over % and subscripts
+
+  my ($col, $line) = @_;
+
+  my ($b, $w);
+  while ($line =~ m/(\w+)/g)
+    {
+      ($b, $w) = ($-[1], $1) if (($-[1] <= $col) && ($col < $+[1]));
+    }
+  return undef unless (defined ($w));
+
+  my @p = ($w);
+  my $j = $b - 1;
+  while (1)
+    {
+      $j-- while (($j >= 0) && (substr ($line, $j, 1) eq ' '));
+      last unless (($j >= 0) && (substr ($line, $j, 1) eq '%'));
+      $j--;
+      $j-- while (($j >= 0) && (substr ($line, $j, 1) eq ' '));
+# a subscript : back to its opening parenthesis
+      if (($j >= 0) && (substr ($line, $j, 1) eq ')'))
+        {
+          my $depth = 0;
+          for (; $j >= 0; $j--)
+            {
+              my $ch = substr ($line, $j, 1);
+              $depth++ if ($ch eq ')');
+              $depth-- if ($ch eq '(');
+              last if ($depth == 0);
+            }
+          $j--;
+          $j-- while (($j >= 0) && (substr ($line, $j, 1) eq ' '));
+        }
+      my $e = $j + 1;
+      $j-- while (($j >= 0) && (substr ($line, $j, 1) =~ m/\w/o));
+      last if ($j + 1 == $e);
+      unshift @p, substr ($line, $j + 1, $e - $j - 1);
+    }
+
+  return join ('%', @p);
 }
 
 sub argtrace

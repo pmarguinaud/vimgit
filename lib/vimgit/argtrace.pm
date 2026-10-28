@@ -40,7 +40,11 @@ sub new
 sub filename
 {
   my ($class, %args) = @_;
-  my $f = "$args{editor}{TOP}/argtrace=/" . lc ("$args{routine}.$args{name}");
+# a path X%Y as x.y : % is the current file name in vim commands
+
+  (my $name = lc ($args{name})) =~ s/%/./go;
+  my $f = "$args{editor}{TOP}/argtrace=/" . lc ($args{routine}) . ".$name";
+  $f .= '.down' if ($args{down});
   $f .= '.follow' if ($args{follow});
   $f .= ".depth=$args{depth}";
   return "$f.txt";
@@ -58,7 +62,7 @@ sub create
 
 # trace dummy argument $args{name} (or the word at the cursor) of the routine around the
 # cursor; depth : levels of callers; follow : go on through the components of dummy
-# arguments
+# arguments; down : trace variable or component path $args{name} (X%Y) down the calls
 
   my ($class, %args) = @_;
 
@@ -100,17 +104,28 @@ sub create
     }
 
   my $name = uc ($args{name});
-  unless (grep { $_ eq $name } @{ $u->{dummies} })
+
+  if ($args{down})
     {
-      &VIM::Msg ("$name is not a dummy argument of $u->{name}");
-      return;
+      my @path = split (m/\s*%\s*/o, $name);
+      $self->{title} = sprintf (":ATD %s in %s (%s:%d), depth %d", $name, $u->{name}, $file, $u->{line}, $depth);
+      $self->line_ ($self->{title}, "$file:$u->{line}");
+      $self->down_ (file => $file, parse => $p, unit => $u, path => \@path, number => [], level => 1);
     }
+  else
+    {
+      unless (grep { $_ eq $name } @{ $u->{dummies} })
+        {
+          &VIM::Msg ("$name is not a dummy argument of $u->{name}");
+          return;
+        }
 
-  $self->{title} = sprintf (":AT %s in %s (%s:%d)%s, depth %d", $name, $u->{name}, $file, $u->{line},
-                            ($args{follow} ? ', follow' : ''), $depth);
-  $self->line_ ($self->{title}, "$file:$u->{line}");
+      $self->{title} = sprintf (":AT %s in %s (%s:%d)%s, depth %d", $name, $u->{name}, $file, $u->{line},
+                                ($args{follow} ? ', follow' : ''), $depth);
+      $self->line_ ($self->{title}, "$file:$u->{line}");
 
-  $self->up_ (file => $file, parse => $p, unit => $u, name => $name, number => [], level => 1);
+      $self->up_ (file => $file, parse => $p, unit => $u, name => $name, number => [], level => 1);
+    }
 
   $self->line_ ('');
   $self->line_ ('No call found.') if ($self->{blocks} == 0);
@@ -326,6 +341,176 @@ sub up_
           $self->leaf_ ([ @number, 1 ], $cfile, $q, $what);
         }
     }
+}
+
+sub down_
+{
+
+# the calls passing path $args{path} ([ X, Y ] for X%Y) of unit $args{unit}, or a part of it,
+# and what the callee receives; number : number of the block of the caller; level : depth
+
+  my ($self, %args) = @_;
+
+  my ($file, $p, $u, $path, $level) = @args{qw (file parse unit path level)};
+
+  my $key = "$file:$u->{line}:" . join ('%', @$path);
+  local $self->{onpath}{$key} = 1;
+
+# calls in the unit, and in the routines it contains that do not declare the name
+
+  my @call = grep { my $c = $p->unit_of ($_); $c && (($c == $u) || ! $p->declares ($c, $path->[0])) }
+             @{ $p->calls_all ($u) };
+
+# the calls passing the path, or a part of it : [ call, arg, expression, callee path rest ]
+
+  my @site;
+  for my $call (@call)
+    {
+      for my $a ($p->args ($call))
+        {
+          my ($arg, $e, $kw, $pos) = @$a;
+          my $x = $self->resolve_ ($p, $call, $e) or next;
+          my $n = @$x < @$path ? @$x : @$path;
+          next if (grep { $x->[$_] ne $path->[$_] } (0 .. $n - 1));
+# x is a prefix of the path : the callee receives the rest of it as components of its dummy
+          my @rest = (@$x <= @$path) ? @{$path}[ scalar (@$x) .. $#$path ] : ();
+          push @site, [ $call, $arg, $e, $kw, $pos, \@rest ];
+        }
+    }
+
+  if (! @site)
+    {
+      if (@{ $args{number} })
+        {
+          my $d = $p->declaration ($u, $path->[0]);
+          $self->leaf_ ([ @{ $args{number} }, 1 ], $file, $p,
+                        { node => ($d ? $d->{stmt} : undef), mark => ($d ? $d->{en} : undef),
+                          phrase => join ('%', @$path) . " is not passed further by $u->{name}" });
+        }
+      return;
+    }
+
+  if ($level > $self->{depth})
+    {
+      $self->line_ ('');
+      $self->line_ (sprintf ("[%s] ... %d call%s of %s not shown (depth %d; :ATD %d to go further)",
+                             join ('.', @{ $args{number} }, '*'), scalar (@site), (@site > 1 ? 's' : ''),
+                             $u->{name}, $self->{depth}, $self->{depth} + 5));
+      return;
+    }
+
+  my $k = 0;
+  for my $s (@site)
+    {
+      my ($call, $arg, $e, $kw, $pos, $rest) = @$s;
+      my @number = (@{ $args{number} }, ++$k);
+      $self->{blocks}++;
+
+      my $c = $p->unit_of ($call);
+      my $cname = $c ? $c->{name} : '?';
+      my $cline = $call->getAttribute ('vL');
+      my ($pd) = $p->{xpc}->findnodes ('./f:procedure-designator/f:named-E/f:N/f:n', $call);
+      my $callee = uc ($pd->textContent);
+
+      my $site = "$file:$cline:" . $arg->getAttribute ('vC');
+      if (my $seen = $self->{seen}{$site})
+        {
+          $self->line_ ('');
+          $self->line_ ('[' . join ('.', @number) . "] see [$seen->[0]]", "=$seen->[1]");
+          next;
+        }
+
+# the callee, and its dummy argument
+
+      my ($dfile, $q, $v) = $self->callee_ ($file, $p, $c || $u, $callee);
+      my $dummy;
+      if ($v)
+        {
+          $dummy = defined ($kw) ? $kw : $v->{dummies}[$pos];
+        }
+
+      my $what = join ('%', ($dummy || '?'), @$rest);
+      my $phrase = $dummy ? "$cname passes " . $e->textContent . " as $dummy of $callee" . (@$rest ? " (tracing $what)" : '')
+                          : "$cname passes " . $e->textContent . " to $callee";
+
+      my $l = $self->header_ (\@number, $file, $phrase, "$file:$cline");
+      $self->{seen}{$site} = [ join ('.', @number), $l ];
+      $self->show_ ($p, $file, $call, $arg);
+
+      if (! $q)
+        {
+          $self->line_ ('');
+          $self->line_ ('[' . join ('.', @number, 1) . "] $callee: " . ($dfile || 'definition not found'));
+          next;
+        }
+      unless ($v && $dummy)
+        {
+          $self->line_ ('');
+          $self->line_ ('[' . join ('.', @number, 1) . "] $callee: no dummy argument receives it");
+          next;
+        }
+
+      my $next = "$dfile:$v->{line}:" . join ('%', $dummy, @$rest);
+      if ($self->{onpath}{$next})
+        {
+          $self->line_ ('');
+          $self->line_ ('[' . join ('.', @number, 1) . "] $what of $v->{name}: recursive call, not followed");
+          next;
+        }
+
+      $self->down_ (file => $dfile, parse => $q, unit => $v, path => [ $dummy, @$rest ],
+                    number => \@number, level => $level + 1);
+    }
+}
+
+sub resolve_
+{
+
+# path of expression $e passed by call $call, ASSOCIATE names replaced by their selectors;
+# undef for literals and expressions
+
+  my ($self, $p, $call, $e) = @_;
+
+  my $x = $p->path ($e) or return undef;
+
+  my %seen;
+  while (my ($a) = grep { $_->{name} eq $x->[0] } @{ $p->associates ($call) })
+    {
+      last if ($seen{$x->[0]}++);
+      my $y = $p->path ($a->{selector}) or return undef;
+      $x = [ @$y, @{$x}[1 .. $#$x] ];
+    }
+
+  return $x;
+}
+
+sub callee_
+{
+
+# the routine $name called from unit $c of file $file : ( file, parsed file, unit ); a
+# routine contained in the same file first, then the definitions of the index; ( message )
+# if it cannot be found or parsed
+
+  my ($self, $file, $p, $c, $name) = @_;
+
+  if (my $v = $p->unit_named ($c, $name))
+    {
+      return ($file, $p, $v);
+    }
+
+  my $ws = $self->{ws};
+  my ($repo) = $ws->repo_of ($file);
+  my ($d) = $ws->definitions (lc ($name), ($repo ? (caller => { file => $file, repo => $repo }) : ()));
+  return () unless ($d);
+
+  my $q = eval { 'vimgit::fxparse'->parse ($ws->realpath ($d->{file})) };
+  unless ($q)
+    {
+      my ($msg) = ($@ =~ m/^At \S+\s*\n\s*(\S.*?)\s*$/mo);
+      return ("$d->{file} cannot be parsed by fxtran (" . ($msg || 'fxtran failed') . ')');
+    }
+
+  return ($d->{file}, $q, $q->unit_at ($d->{line}));
 }
 
 sub classify_

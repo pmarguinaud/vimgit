@@ -36,6 +36,9 @@ COMMANDS					*vimgit-commands*
 :AT [name] [depth] [follow]
 		the call sequences passing a variable as dummy argument
 		name of the routine around the cursor; see |vimgit-argtrace|
+:ATD [name] [depth]
+		the calls passing variable or component name (X, X%Y; the
+		one under the cursor without a name) down the call tree
 :T align_args	align the declarations of dummy arguments (needs fxtran)
 :T align_use	clean up and align USE statements (needs fxtran)
 :C		make the current file a single link (done before writes)
@@ -75,6 +78,10 @@ argument. The chain goes up while the variable is a dummy argument
 literal or an expression. A component of a dummy argument stops it, unless
 follow is given. atdepth (5) levels by default. <TAB> or ² on a line opens
 the file there. Needs fxtran.
+
+:ATD goes down: the calls passing the variable or component under the
+cursor (X, X%Y), or the variable it belongs to, or a part of it, then the
+same in the callees, until it is not passed further.
 
 WORKSPACE					*vimgit-workspace*
 
@@ -411,6 +418,7 @@ command! -nargs=* CTR    :perl $::EDITOR->CALLTREE ("<args>", callers => 1)
 command! -nargs=* TT     :perl $::EDITOR->CALLTREE ("<args>", types => 1)
 command! -nargs=* TTR    :perl $::EDITOR->CALLTREE ("<args>", types => 1, users => 1)
 command! -nargs=* AT     :perl $::EDITOR->ARGTRACE ("<args>")
+command! -nargs=* ATD    :perl $::EDITOR->ARGTRACE ("<args>", down => 1)
 command! -nargs=0 C      :perl $::EDITOR->COMMIT ()
 command! -nargs=1 E      :perl $::EDITOR->EDIT ("<args>")
 command! -nargs=* T      :perl $::EDITOR->TRANSFORM ("<args>")

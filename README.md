@@ -91,7 +91,7 @@ gitgrep   200;                  # above this many files, git searches
 context   2;                    # lines shown around a match
 keep      3;                    # indexes kept per repository
 depth     6;                    # default depth of :CT :CTR :TT :TTR
-atdepth   5;                    # default depth of :AT
+atdepth   5;                    # default depth of :AT and :ATD
 fxtran    'fxtran';             # fxtran binary, for :AT on fixed form files
 
 blacklist qw (DR_HOOK MPL_*);   # routines left out of call trees (any case, * allowed)
@@ -238,6 +238,7 @@ readwrite 'modi';                                # the others open read-only
 | `:TT [name [depth]]` | type tree of a derived type (the word under the cursor without a name): the types of its components, and so on |
 | `:TTR [name [depth]]` | tree of the types using it |
 | `:AT [name] [depth] [follow]` | the call sequences passing a variable as dummy argument `name` (the word under the cursor without a name) of the routine around the cursor |
+| `:ATD [name] [depth]` | the calls passing variable or component `name` (`X`, `X%Y`; the one under the cursor without a name) down the call tree |
 | `:T align_args`, `:T align_use` | align the declarations of dummy arguments; clean up and align `USE` statements (needs fxtran) |
 | `:C` | make the current file a single link (done before each write) |
 | `:CONFIG` | show the settings in use, and where they come from |
@@ -378,6 +379,33 @@ argument:
 - `:AT X 10` goes 10 levels up (the `atdepth` setting, 5 by default);
 - `<TAB>` or `²` on a line opens the file there; on a `see` line, they go to
   the block.
+
+`:ATD X` goes the other way: from a variable of a routine (a dummy argument,
+a local, a module variable), the calls passing it, then the calls passing it
+further in the callees, and so on:
+
+```
+:ATD YDVARS%T in CPG (cpg.F90:1), depth 3
+
+[1] cpg.F90                             CPG passes YDVARS as YDVARS of CPG_GP (tracing YDVARS%T)
+...
+[1.1] cpg_gp.F90                        CPG_GP passes YDVARS%T%T0 as P0T of GPTF2_EXPL_3TL_PART1
+...
+[1.1.1] gptf2_expl_3tl_part1.F90        P0T is not passed further by GPTF2_EXPL_3TL_PART1
+```
+
+- what is traced is what the cursor is on: on `YDVARS` in `YDVARS%T%T0`,
+  `YDVARS`; on `T`, `YDVARS%T`; `:ATD YDVARS%T` gives it by name;
+- a call is shown when it passes what is traced (`X%Y`, `X%Y(:,1)`), the
+  variable it belongs to (`X`: the callee's `D%Y` is traced), or a part of it
+  (`X%Y%Z`: the callee's dummy argument is traced); `ASSOCIATE` names are
+  replaced by their selector, subscripts are ignored;
+- calls are searched in the routine and in the routines it contains that do
+  not declare the name; the callee is a contained routine of the file, or
+  the definition chosen as for `²`;
+- a chain ends when the variable is not passed further (the declaration of
+  the dummy argument is shown), on a callee not found or not parsed, a
+  recursive call, or the depth (`atdepth`, `:ATD X 10`).
 
 Callers come from the call index; the files are parsed by fxtran (the
 `fxtran` Perl module, and the `fxtran` binary for fixed form files), once

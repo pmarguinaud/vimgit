@@ -316,6 +316,36 @@ sub calls
            $xpc->findnodes ('.//f:call-stmt', $u->{node}) ];
 }
 
+sub calls_all
+{
+
+# CALL statements in unit $u and the units contained in it (not type-bound calls)
+
+  my ($self, $u) = @_;
+  my $xpc = $self->{xpc};
+  return [ grep { my ($n) = $xpc->findnodes ('./f:procedure-designator/f:named-E', $_); $n && ! $xpc->findnodes ('./f:R-LT', $n) }
+           $xpc->findnodes ('.//f:call-stmt', $u->{node}) ];
+}
+
+sub args
+{
+
+# actual arguments of call-stmt $call : ( [ arg node, expression node, keyword or undef,
+# position among positional arguments or undef ] )
+
+  my ($self, $call) = @_;
+
+  my $xpc = $self->{xpc};
+  my ($i, @r) = (0);
+  for my $a ($xpc->findnodes ('./f:arg-spec/f:arg', $call))
+    {
+      my ($k) = $xpc->findnodes ('./f:arg-N', $a);
+      my ($e) = grep { ($_->nodeType == XML_ELEMENT_NODE) && ($_->nodeName ne 'arg-N') } $a->childNodes;
+      push @r, [ $a, $e, ($k ? uc ($k->getAttribute ('n')) : undef), ($k ? undef : $i++) ];
+    }
+  return @r;
+}
+
 sub actual
 {
 
@@ -348,21 +378,26 @@ sub associates
 
   my ($self, $n) = @_;
 
+# once per node, and once per ASSOCIATE construct
+
+  my $key = $n->unique_key;
+  return $self->{assocof}{$key} if ($self->{assocof}{$key});
+
   my $xpc = $self->{xpc};
   my @r;
   for (my $p = $n->parentNode; $p && ($p->nodeType == XML_ELEMENT_NODE); $p = $p->parentNode)
     {
       last if ($p->nodeName eq 'program-unit');
       next unless ($p->nodeName eq 'associate-construct');
-      for my $a ($xpc->findnodes ('./f:associate-stmt/f:associate-LT/f:associate', $p))
-        {
-          my ($an) = $xpc->findnodes ('./f:associate-N/f:n', $a);
-          my ($sel) = $xpc->findnodes ('./f:selector/*', $a);
-          push @r, { name => uc ($an->textContent), selector => $sel, node => $a } if ($an && $sel);
-        }
+      my $c = $self->{assocon}{$p->unique_key} ||= [
+        map { my ($an) = $xpc->findnodes ('./f:associate-N/f:n', $_);
+              my ($sel) = $xpc->findnodes ('./f:selector/*', $_);
+              ($an && $sel) ? ({ name => uc ($an->textContent), selector => $sel, node => $_ }) : () }
+        $xpc->findnodes ('./f:associate-stmt/f:associate-LT/f:associate', $p) ];
+      push @r, @$c;
     }
 
-  return \@r;
+  return $self->{assocof}{$key} = \@r;
 }
 
 sub expression
@@ -387,6 +422,49 @@ sub expression
     }
 
   return { kind => 'expression', text => $text };
+}
+
+sub path
+{
+
+# path of expression node $e : [ base, component, ... ] (upper case, subscripts left out);
+# undef if it is not a variable or a component
+
+  my ($self, $e) = @_;
+
+  return undef unless ($e && ($e->nodeName eq 'named-E'));
+
+  my $xpc = $self->{xpc};
+  my ($n) = $xpc->findnodes ('./f:N/f:n', $e);
+  return [ uc ($n->textContent), map { uc ($_->textContent) } $xpc->findnodes ('./f:R-LT/f:component-R/f:ct', $e) ];
+}
+
+sub unit_named
+{
+
+# unit $name contained in the same routine as unit $u (or in $u itself)
+
+  my ($self, $u, $name) = @_;
+  my $top = $u;
+  $top = $top->{host} while ($top->{host});
+  for my $c (@{ $self->{units} })
+    {
+      next unless (($c->{name} eq $name) && $c->{host});
+      my $t = $c;
+      $t = $t->{host} while ($t->{host});
+      return $c if ($t == $top);
+    }
+  return undef;
+}
+
+sub declares
+{
+
+# true if unit $u has $name as a dummy argument or declares it
+
+  my ($self, $u, $name) = @_;
+  return 1 if (grep { $_ eq $name } @{ $u->{dummies} });
+  return $self->declaration ($u, $name) ? 1 : 0;
 }
 
 sub context

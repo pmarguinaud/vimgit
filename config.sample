@@ -58,7 +58,7 @@ blacklist qw (DR_HOOK);
 
 # --- argument traces -----------------------------------------------------
 
-# default depth of :AT (default 5); :AT X 10 goes 10 levels up
+# default depth of :AT and :ATD (default 5); :AT X 10 goes 10 levels up
 atdepth 5;
 
 # fxtran binary, for :AT on fixed form files (free form files use the
