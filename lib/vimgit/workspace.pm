@@ -447,7 +447,7 @@ sub definitions
 
 # definitions of routine $name in the indexed repositories (after refresh), the most likely
 # first : in the file of $args{caller}, in its repository, in a file named after the routine,
-# in the first repository of the config; routines contained in another file come last (they
+# in the first repository of the config; definitions marked internal come last (they
 # cannot be called from there); types : definitions of type $name, same order, $args{caller}
 # being the type using it
 

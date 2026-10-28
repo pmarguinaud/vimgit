@@ -99,7 +99,7 @@ sub wanted_windex_
 
   &windex_ ($f, $windex, $text) if ($windex);
 
-# dindex : definitions, name -> [ "file:line" ], "file:line*" for contained routines;
+# dindex : definitions, name -> [ "file:line" ] (routines contained in another are not units);
 # cindex : routines called, "file:line" -> [ name ]; tindex : definitions of derived
 # types, as dindex; tcindex : "file:line" -> [ "kind/type/name/line/attr" ], components of
 # derived types, the parent type first as "extends/parent//line/"
@@ -110,7 +110,7 @@ sub wanted_windex_
       for my $u (@{ 'vimgit::lang::fortran'->units ($text, fixed => (($f =~ m/\.f$/io) ? 1 : 0), types => \@types) })
         {
           my $key = "$f:$u->{line}";
-          push @{ $args{dindex}{$u->{name}} }, $key . ($u->{internal} ? '*' : '');
+          push @{ $args{dindex}{$u->{name}} }, $key;
           $args{cindex}{$key} = $u->{calls};
         }
       for my $t (@types)

@@ -165,7 +165,8 @@ are kept; for other settings, the most recent one, for 30 days.
 
 Besides words and file names, the index records, for Fortran files, the
 routines each file defines (subroutines, functions, programs; not interface
-blocks), the routines each one calls (`CALL` statements), the derived types
+blocks, nor routines contained in another routine, whose calls go to it), the
+routines each one calls (`CALL` statements), the derived types
 each file defines and their components of derived type. Call trees, type
 trees and the definition key use them.
 
@@ -262,8 +263,11 @@ CPG_GP_TENC ────┤                  ┌── ABOR1 (see line 1)
 - a routine is expanded once; later, `(see line N)`, or `(recursive, see line N)`;
 - `[+n]`: other definitions exist; the one shown is, in this order, in the
   caller's file, in the caller's repository, in a file named after the
-  routine, in the first repository of the config; routines contained in
-  another file (after `CONTAINS`) come last;
+  routine, in the first repository of the config;
+- a routine contained in another routine or a program (after `CONTAINS`) is
+  not a node: its calls count as calls of the outermost routine, and calls
+  to it are left out; it has no definition in the index (`²` on its name
+  searches for it). Routines contained in a module are indexed as usual;
 - `(not found)`: no definition in the indexed repositories;
   `(type-bound)`: `CALL x%y`, shown but not followed;
 - `blacklist` names of the config are left out; `:CT cpg 3` stops at 3 levels

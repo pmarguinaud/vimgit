@@ -35,7 +35,7 @@ sub new
 
 # version of the index format; a new version calls for new indexes
 
-our $FORMAT = 2;
+our $FORMAT = 3;
 
 sub digest
 {

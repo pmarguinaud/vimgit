@@ -102,10 +102,10 @@ sub units
 
 # program units defined in Fortran source $text (fixed : fixed form) and the routines each one
 # calls (CALL statements; type-bound calls as written, x%y); returns
-# [ { name, line, internal, calls => [ name, ... ] }, ... ] for programs, subroutines and
-# functions outside interface blocks; internal : contained in a program, a subroutine or a
-# function. Calls in a function contained in a subroutine or a program go to that subroutine
-# or program.
+# [ { name, line, calls => [ name, ... ] }, ... ] for programs, subroutines and functions
+# outside interface blocks. Routines contained in a program, a subroutine or a function are
+# not units : their body counts as the body of the outermost one, which receives their
+# calls; calls to them are left out.
 #
 # types : an array receiving the derived types defined in $text :
 # { name, line, internal, extends => [ name, line ], components => [ { kind (type, class),
@@ -190,8 +190,17 @@ sub units
           if (($s =~ m/^\s*$prefix(subroutine|function)\s+(\w+)/i) || ($s =~ m/^\s*$prefix$type\s*$prefix(function)\s+(\w+)/i)
            || ($s =~ m/^\s*(program)\s+(\w+)/io))
             {
-              my $u = { kind => lc ($1), name => lc ($2), line => $n, calls => [],
-                        internal => scalar (grep { $_->{name} } @stack) };
+              my $u = { kind => lc ($1), name => lc ($2), line => $n, calls => [] };
+
+# contained in a routine or a program : part of the outermost one
+
+              if (my ($host) = grep { $_->{name} } @stack)
+                {
+                  $host->{contained}{$u->{name}} = 1;
+                  push @stack, { kind => $u->{kind}, name => $u->{name}, host => $host };
+                  next;
+                }
+
               push @unit, $u;
               push @stack, $u;
               next;
@@ -216,13 +225,20 @@ sub units
             {
               (my $c = lc ($1)) =~ s/\([^()]*\)|\s+//go;
 
-# the unit receiving the call : the innermost subroutine or program, or a function alone
+# the unit receiving the call : the outermost routine or program
 
-              my ($u) = grep { ($_->{kind} eq 'subroutine') || ($_->{kind} eq 'program') } reverse (@stack);
-              ($u) = grep { $_->{kind} eq 'function' } reverse (@stack) unless ($u);
+              my ($u) = grep { $_->{name} } @stack;
               push @{ $u->{calls} }, $c if ($u);
             }
         }
+    }
+
+# calls to the routines contained in a unit : their bodies are already in it
+
+  for my $u (grep { $_->{contained} } @unit)
+    {
+      my $x = delete $u->{contained};
+      $u->{calls} = [ grep { ! $x->{$_} } @{ $u->{calls} } ];
     }
 
   return \@unit;
