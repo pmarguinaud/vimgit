@@ -122,6 +122,9 @@ results   300;
 - **`repo`** belongs to `.vimgit/config` only. Repositories not listed are
   ignored; lines naming an alias, a sub-directory or something that is not a
   repository are reported and ignored.
+- **`dir <name> => <path>`** and **`readwrite`**, also for `.vimgit/config`
+  only: directories that are not git repositories (see
+  [Directories without git](#directories-without-git)).
 - **`key <action> => <keys>`**: the keys of an action, replacing its default
   keys:
 
@@ -175,6 +178,44 @@ An index built for one of the last 10 commits is used; for older ones, run
 
 A repository without an index is reported at start and searched with
 `git grep` (slower).
+
+## Directories without git
+
+A workspace can also hold directories that are not git repositories, such as
+the generated sources of a build directory:
+
+```perl
+# .vimgit/config
+repo qw (ial-source fiat surfex phyex);
+
+dir generated => '../build/.fxtran/generated';   # name => path (absolute, or
+dir modi      => '../build/modi';                # relative to the workspace)
+
+exclude generated => '*_parallel.F90';           # as for repositories
+readwrite 'modi';                                # the others open read-only
+```
+
+- **Names:** files show as `<name>/<path>` (`generated/acbl89_openacc.F90`),
+  and `:E generated/acbl89_openacc.F90` opens them; vim shows their real path.
+  A name must not be a file or directory of the workspace.
+- **Order:** `repo` and `dir` lines keep their order, for results and for
+  choosing among several definitions.
+- **Files:** the directory is walked, symbolic links not followed (neither to
+  files nor to directories); hidden directories are walked too, except
+  `.vimgit`. `index`, `exclude` and `.vimgitignore` files apply, with
+  gitignore patterns matched by vimgit.
+- **Index:** `vimgit -i` builds it in `<dir>/.vimgit/<digest>/`, with the date
+  and size of each file. When vim starts, the directory is walked once:
+  files added, changed or removed since the index are scanned again; a file
+  written in vim is scanned again at once. A build made while vim runs is
+  seen at the next start (`:R` does not walk directories again). A directory
+  that is not writable has no index: it is searched with `git grep
+  --no-index`.
+- **Read-only:** files of a directory open with `readonly` set (`:w!` still
+  writes), except for the directories listed by `readwrite` (a list, like
+  `blacklist`).
+- **Overlaps:** a directory inside another directory or a repository, or
+  holding a repository, is reported: its files are indexed twice.
 
 ## In vim
 

@@ -15,6 +15,7 @@ use File::Spec;
 use FileHandle;
 
 use vimgit::config;
+use vimgit::dir;
 use vimgit::git;
 use vimgit::lang;
 use vimgit::repo;
@@ -77,14 +78,22 @@ sub warning
 sub readconfig
 {
 
-# the repositories listed by the repo settings of .vimgit/config
+# the repositories and directories listed by the repo and dir settings of .vimgit/config,
+# in their order
 
   my $self = shift;
 
   my %seen; # top -> mount
 
-  for my $mount (map { 'File::Spec'->canonpath ($_) } $self->{config}->repos ())
+  for my $m ($self->{config}->members ())
     {
+      if (defined ($m->[2]))
+        {
+          $self->adddir_ (@$m, \%seen);
+          next;
+        }
+
+      my $mount = 'File::Spec'->canonpath ($m->[0]);
       my $dir = "$self->{root}/$mount";
 
       my $top = (-d $dir) ? 'vimgit::git'->getTopDirectory (dir => $dir) : '';
@@ -109,6 +118,86 @@ sub readconfig
     }
 
   $self->warning (".vimgit/config lists no repository") unless (@{ $self->{repos} });
+
+# a directory inside a repository or another directory, or holding one : its files would
+# be indexed twice
+
+  my @top = map { [ $_->{mount}, $_->{top}, $_->isa ('vimgit::dir') ] } $self->repos ();
+  for my $d (grep { $_->isa ('vimgit::dir') } $self->repos ())
+    {
+      for my $t (grep { $_->[0] ne $d->{mount} } @top)
+        {
+          if (index ("$d->{top}/", "$t->[1]/") == 0)
+            {
+              $self->warning ("dir $d->{mount} is inside $t->[0]; its files are indexed twice");
+            }
+          elsif ((! $t->[2]) && (index ("$t->[1]/", "$d->{top}/") == 0))
+            {
+              $self->warning ("dir $d->{mount} holds $t->[0]; its files are indexed twice");
+            }
+        }
+    }
+}
+
+sub adddir_
+{
+
+# directory $name => $path (dir setting, line $origin); seen : top -> mount
+
+  my ($self, $name, $origin, $path, $seen) = @_;
+
+  my $abs = 'File::Spec'->rel2abs ($path, $self->{root});
+
+  if (! -d $abs)
+    {
+      $self->warning ("$origin: dir $name: $path is not a directory; ignored");
+      return;
+    }
+
+  my $top = &Cwd::abs_path ($abs);
+
+  if (my $other = $seen->{$top})
+    {
+      $self->warning ("$origin: dir $name: $path is the same as $other; ignored");
+    }
+  elsif ($self->repo ($name))
+    {
+      $self->warning ("$origin: dir $name: $name is already the name of a repository or a directory; ignored");
+    }
+  elsif (-e "$self->{root}/$name")
+    {
+      $self->warning ("$origin: dir $name: $name is a file or directory of the workspace; choose another name; ignored");
+    }
+  else
+    {
+      $seen->{$top} = $name;
+      push @{ $self->{repos} }, 'vimgit::dir'->new (top => $top, mount => $name);
+      $self->warning ("$origin: dir $name: $path is not writable; it has no index")
+        unless (-w $top);
+    }
+}
+
+sub realpath
+{
+
+# path to open for workspace path $f : the real path for the files of a directory (dir),
+# $f otherwise
+
+  my ($self, $f) = @_;
+  my ($name, $rel) = ($f =~ m,^([^/]+)/(.*)$,o) or return $f;
+  my $d = $self->repo ($name);
+  return ($d && $d->isa ('vimgit::dir')) ? $d->realpath ($rel) : $f;
+}
+
+sub readonly
+{
+
+# true if workspace path $f is a file of a directory (dir) not listed by readwrite
+
+  my ($self, $f) = @_;
+  my ($repo) = $self->repo_of ($f) or return 0;
+  return 0 unless ($repo->isa ('vimgit::dir'));
+  return ! grep { $_ eq $repo->{mount} } $self->{config}->readwrite ();
 }
 
 sub settings_
@@ -151,6 +240,15 @@ sub settings_
     }
 
   $_->{keep} = $c->value ('keep') for ($self->repos ());
+
+# readwrite <name> ... : directories whose files open read-write
+
+  for my $name ($c->readwrite ())
+    {
+      my $d = $self->repo ($name);
+      $self->warning ("readwrite $name: $name is not a directory (dir) of the workspace")
+        unless ($d && $d->isa ('vimgit::dir'));
+    }
 }
 
 sub discover
@@ -277,10 +375,12 @@ sub sets
 sub noindex
 {
 
-# repositories without an index, by mount
+# repositories without an index, by mount; directories (dir) not writable are left out
+# (they cannot have one, and are reported when the workspace is read)
 
   my $self = shift;
-  return map { $_->{mount} } grep { ! defined ($_->indexhash ()) } $self->repos ();
+  return map { $_->{mount} } grep { ! defined ($_->indexhash ()) }
+         grep { ! ($_->isa ('vimgit::dir') && ! -w $_->{top}) } $self->repos ();
 }
 
 sub lookup

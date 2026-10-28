@@ -4,6 +4,8 @@ package vimgit::config;
 # run in package vimgit::config::dsl, one function per setting :
 #
 #   repo      qw (ial-source fiat);           # workspace only
+#   dir       generated => '../build/.fxtran/generated';   # a directory without git, by name
+#   readwrite qw (generated);                 # directories whose files open read-write
 #   exclude   fiat => 'tests/**', ...;        # in HOME, for the repositories mounted as fiat
 #   index     qw (*.F90 *.h);                 # lists : -name removes, - empties
 #   blacklist qw (DR_HOOK MPL_*);
@@ -44,7 +46,7 @@ sub home
 sub new
 {
   my $class = shift;
-  return bless { value => {}, repo => [], exclude => [], index => undef, blacklist => [],
+  return bless { value => {}, repo => [], exclude => [], index => undef, blacklist => [], readwrite => [],
                  key => {}, removed => [], warnings => [], old => [] }, $class;
 }
 
@@ -195,8 +197,27 @@ sub value
 
 sub repos
 {
+
+# the git repositories (repo), by mount
+
   my $self = shift;
-  return map { $_->[0] } @{ $self->{repo} };
+  return map { $_->[0] } grep { ! defined ($_->[2]) } @{ $self->{repo} };
+}
+
+sub members
+{
+
+# repositories and directories, in the order of the file : [ mount or name, origin,
+# path (directories only) ]
+
+  my $self = shift;
+  return @{ $self->{repo} };
+}
+
+sub readwrite
+{
+  my $self = shift;
+  return map { $_->[0] } @{ $self->{readwrite} };
 }
 
 sub excludes
@@ -248,7 +269,10 @@ sub text
     push @l, sprintf ("%-60s # %s", $text, $origin);
   };
 
-  $line->("repo $_->[0];", $_->[1]) for (map { [ $q->($_->[0]), $_->[1] ] } @{ $self->{repo} });
+  for (@{ $self->{repo} })
+    {
+      $line->(defined ($_->[2]) ? "dir $_->[0] => " . $q->($_->[2]) . ';' : "repo " . $q->($_->[0]) . ';', $_->[1]);
+    }
   $line->("exclude $_->[0] => " . $q->($_->[1]) . ';', $_->[2]) for (@{ $self->{exclude} });
   if ($self->{index})
     {
@@ -259,6 +283,7 @@ sub text
       $line->("index qw (" . join (' ', 'vimgit::lang'->defaultindexed ()) . ');', 'default');
     }
   $line->("blacklist " . $q->($_->[0]) . ';', $_->[1]) for (@{ $self->{blacklist} });
+  $line->("readwrite " . $q->($_->[0]) . ';', $_->[1]) for (@{ $self->{readwrite} });
   for my $name (@VALUES)
     {
       my ($v, $origin) = exists ($self->{value}{$name}) ? @{ $self->{value}{$name} } : ($DEFAULT{$name}, 'default');
@@ -295,6 +320,48 @@ sub repo
       return;
     }
   push @{ $c->{repo} }, map { [ $_, $c->origin_ () ] } @_;
+}
+
+sub dir
+{
+
+# dir name => path, ... : directories that are not git repositories; path absolute, or
+# relative to the workspace
+
+  my $c = &current_ ();
+  my $origin = $c->origin_ ();
+  if ($c->{scope} eq 'home')
+    {
+      $c->warning ("$origin: dir is for the .vimgit/config of a workspace; ignored");
+      return;
+    }
+  my @a = @_;
+  while (my ($name, $path) = splice (@a, 0, 2))
+    {
+      if (! defined ($path))
+        {
+          $c->warning ("$origin: dir $name: no path");
+        }
+      elsif ($name !~ m/^[\w.+-]+$/o)
+        {
+          $c->warning ("$origin: dir $name: a name is made of letters, digits, _ . + -");
+        }
+      else
+        {
+          push @{ $c->{repo} }, [ $name, $origin, $path ];
+        }
+    }
+}
+
+sub readwrite
+{
+  my $c = &current_ ();
+  if ($c->{scope} eq 'home')
+    {
+      $c->warning ($c->origin_ () . ": readwrite is for the .vimgit/config of a workspace; ignored");
+      return;
+    }
+  $c->list_ ('readwrite', @_);
 }
 
 sub exclude
