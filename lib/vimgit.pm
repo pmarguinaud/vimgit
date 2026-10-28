@@ -57,11 +57,14 @@ sub edit
           ($line) = ($1);
         }
 
-# a path to an existing file is used as is; otherwise look up the basename in the indexes
+# a path to an existing file is used as is; otherwise look up the basename in the indexes;
+# files of directories (dir) are named <name>/<path>, and opened by their real path
 
       my @P;
+      my $ws = $self->{workspace};
+      my $real = sub { $ws ? $ws->realpath ($_[0]) : $_[0] };
 
-      if ((&basename ($F) ne $F) && (-f $F))
+      if ((&basename ($F) ne $F) && (-f $real->($F)))
         {
           @P = ('File::Spec'->canonpath ($F));
         }
@@ -69,7 +72,7 @@ sub edit
         {
           $F = &basename ($F);
           my %seen;
-          @P = grep { (! $seen{$_}++) && (-f $_) } $self->{workspace}->paths_for_name ($F);
+          @P = grep { (! $seen{$_}++) && (-f $real->($_)) } $ws->paths_for_name ($F);
         }
 
       unless (@P)
@@ -93,9 +96,14 @@ sub edit
     {
       my ($H, $line, $column) = @{ $HlF[$i] };
 
-      my $f = 'vimgit::source'->new (file => $H);
+      my $ws = $self->{workspace};
+      my $f = 'vimgit::source'->new (file => ($ws ? $ws->realpath ($H) : $H));
 
       $f->do_edit (line => $line, column => $column, editor => $self);
+
+# generated files : read-only, unless the directory is listed by readwrite
+
+      &VIM::DoCommand ('setlocal readonly') if ($ws && $ws->readonly ($H));
 
       if ($args{hist})
         {
@@ -393,7 +401,9 @@ sub definition
 
       no warnings;
       my $f = 'File::Spec'->canonpath ('File::Spec'->abs2rel ($main::curbuf->Name ()));
-      my ($repo) = $ws->repo_of ($f);
+      my ($repo, $rel) = $ws->repo_of ($f);
+# the workspace path : <name>/<path> for the files of a directory (dir)
+      $f = $repo->path ($rel) if ($repo);
       @d = $ws->definitions ($word, types => $args{types}, ($repo ? (caller => { file => $f, repo => $repo }) : ()));
     }
 

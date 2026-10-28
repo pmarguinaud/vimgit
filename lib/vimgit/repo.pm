@@ -35,7 +35,7 @@ sub new
 
 # version of the index format; a new version calls for new indexes
 
-our $FORMAT = 2;
+our $FORMAT = 3;
 
 sub digest
 {
@@ -65,7 +65,7 @@ sub othersettings
 
   my $self = shift;
   my $digest = $self->digest ();
-  for my $hash (@{ 'vimgit::git'->getHashList (top => $self->{top}) })
+  for my $hash (@{ $self->commits_ () })
     {
       return 1 if (grep { (m/-([0-9a-f]+)$/o ? $1 : '') ne $digest } glob ("$self->{IDX}/$hash*"));
     }
@@ -97,6 +97,56 @@ sub relpath
   return $f =~ m,^\Q$self->{mount}\E/(.*)$, ? $1 : undef;
 }
 
+# what git provides; vimgit::dir (a directory without git) provides the same
+
+sub commits_
+{
+
+# the last commits, most recent first
+
+  my $self = shift;
+  return 'vimgit::git'->getHashList (top => $self->{top});
+}
+
+sub files_
+{
+
+# tracked files, plus untracked files not ignored; paths relative to the top
+
+  my $self = shift;
+  return 'vimgit::git'->getFiles (top => $self->{top});
+}
+
+sub changes_
+{
+
+# files changed since the index of commit $hash : { path => '+' (added), '-' (removed), 'M' }
+
+  my ($self, $hash) = @_;
+  return 'vimgit::git'->getDiff (top => $self->{top}, hash => $hash);
+}
+
+sub ignored_
+{
+  my ($self, $f) = @_;
+  return 'vimgit::git'->isIgnored (top => $self->{top}, file => $f);
+}
+
+sub grep_
+{
+
+# files containing $word (whole word, any case), without an index; paths relative to the top
+
+  my ($self, $word) = @_;
+  return 'vimgit::git'->grepRepository (top => $self->{top}, word => $word);
+}
+
+sub built_
+{
+
+# called when the index of directory $dir has been built from files @files
+}
+
 sub excluded
 {
 
@@ -117,9 +167,7 @@ sub indexhash
 
   my $self = shift;
 
-  my $hashlist = 'vimgit::git'->getHashList (top => $self->{top});
-
-  for my $hash (@$hashlist)
+  for my $hash (@{ $self->commits_ () })
     {
       return $hash if (-f $self->dir_ ($hash) . "/sindex.db");
     }
@@ -133,7 +181,7 @@ sub uptodate
 # true if the current commit has an index, with definitions, calls and types
 
   my $self = shift;
-  my ($hash) = @{ 'vimgit::git'->getHashList (top => $self->{top}) };
+  my ($hash) = @{ $self->commits_ () };
   return $hash && ! grep { ! -f $self->dir_ ($hash) . "/$_.db" } qw (windex sindex dindex cindex tindex tcindex);
 }
 
@@ -146,7 +194,7 @@ sub build
 
   my $fhlog = $args{fhlog};
 
-  my $hashlist = 'vimgit::git'->getHashList (top => $self->{top});
+  my $hashlist = $self->commits_ ();
   die ("No commit in $self->{top}") unless (scalar (@$hashlist));
 
   my ($hash) = @$hashlist;
@@ -163,8 +211,9 @@ sub build
 # files listed by git, relative to the top of the repository, except excluded files
 
   my $x = $self->excluded ();
+  my @files = grep { ! $x->{$_} } @{ $self->files_ () };
 
-  for my $f (grep { ! $x->{$_} } @{ 'vimgit::git'->getFiles (top => $self->{top}) })
+  for my $f (@files)
     {
       &vimgit::wanted_windex_ (windex => \%windex, sindex => \%sindex, dindex => \%dindex, cindex => \%cindex,
                                tindex => \%tindex, tcindex => \%tcindex,
@@ -186,6 +235,8 @@ sub build
   tie (my %SINDEX,  'DB_File', "$dir/sindex.db",  O_RDWR | O_CREAT, 0666, $DB_HASH);
   &vimgit::cidx (\%sindex, \%SINDEX);
   untie (%SINDEX);
+
+  $self->built_ ($dir, \@files);
 
   $self->prune ();
 }
@@ -318,7 +369,7 @@ sub cache
                              windex => {}, sindex => {}, dindex => {}, cindex => {}, tindex => {}, tcindex => {},
                              findex => {}, wordsof => {}, defsof => {} };
 
-  my $m = 'vimgit::git'->getDiff (top => $self->{top}, hash => $hash);
+  my $m = $self->changes_ ($hash);
 
 # changed files : excluded ones are not scanned
 
@@ -357,7 +408,7 @@ sub noindex
     {
       my $x = $self->excluded ();
       $self->{noindex} = { head => $head, excluded => $x,
-                           files => [ grep { ! $x->{$_} } @{ 'vimgit::git'->getFiles (top => $self->{top}) } ] };
+                           files => [ grep { ! $x->{$_} } @{ $self->files_ () } ] };
     }
 
   return $self->{noindex};
@@ -432,7 +483,7 @@ sub update
   my ($self, $f) = @_;
 
   return unless ($self->{cache});
-  return if ('vimgit::git'->isIgnored (top => $self->{top}, file => $f));
+  return if ($self->ignored_ ($f));
   return if ($self->excluded (files => [ $f ])->{$f});
 
   $self->scan ($f);
@@ -453,7 +504,7 @@ sub files_for_word
       my $n = $self->noindex ();
       my $ext = 'vimgit::lang'->indexed ();
       return [ map { $self->path ($_) } sort grep { (! $n->{excluded}{$_}) && ($_ =~ $ext) }
-               @{ 'vimgit::git'->grepRepository (top => $self->{top}, word => $word) } ];
+               @{ $self->grep_ ($word) } ];
     }
 
   my %f = map { ($_, 1) }

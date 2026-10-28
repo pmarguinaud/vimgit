@@ -346,7 +346,7 @@ sub pretty_grep
 
   for my $f (@{ $args{files} })
     {
-      next unless (my $fhF = 'FileHandle'->new ("<$f"));
+      next unless (my $fhF = 'FileHandle'->new ('<' . $edtr->{workspace}->realpath ($f)));
       my @text = <$fhF>;
       $fhF->close ();
   

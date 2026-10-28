@@ -79,6 +79,14 @@ git, vim, jobs, results, gitgrep, context, keep, depth, key <action> =>
 <keys> (actions: search, search_window, definition, definition_window,
 back). In lists, '-name' removes an entry, '-' empties the list. vimgit -c
 and :CONFIG show the settings in use and where they come from.
+
+DIRECTORIES					*vimgit-dir*
+
+dir <name> => <path> (.vimgit/config) adds a directory that is not a git
+repository; its files show as <name>/<path>. Its index is in
+<dir>/.vimgit/, built by vimgit -i; the directory is walked when vim
+starts, symbolic links not followed. Its files open read-only, unless
+readwrite qw (<name> ...) lists it.
 See README.md in the vimgit directory.
 EOF
 
@@ -287,6 +295,14 @@ if ($opts{i} || $opts{I})
 # one process per repository, -j at a time; -i skips the repositories already indexed
 
     @repo = grep { ! $_->uptodate () } @repo unless ($opts{I});
+
+# directories (dir) not writable : no index
+
+    for my $r (grep { $_->isa ('vimgit::dir') && ! -w $_->{top} } @repo)
+      {
+        print "vimgit: $r->{mount}: $r->{top} is not writable; no index\n";
+      }
+    @repo = grep { ! ($_->isa ('vimgit::dir') && ! -w $_->{top}) } @repo;
 
     print "vimgit: indexes are up to date\n" unless (@repo);
 
